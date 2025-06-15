@@ -552,6 +552,38 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
   }  
 }
 
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    ledToggle(_DEF_LED3);  // TX LED
+  }
+  else if (huart->Instance == USART2)
+  {
+    ledToggle(_DEF_LED5);  // RS485 LED
+  }
+  else if (huart->Instance == USART3)
+  {
+    ledToggle(_DEF_LED5);  // RS485 LED
+  }
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    ledToggle(_DEF_LED2);  // RX LED
+  }
+  else if (huart->Instance == USART2)
+  {
+    ledToggle(_DEF_LED5);  // RS485 LED
+  }
+  else if (huart->Instance == USART3)
+  {
+    ledToggle(_DEF_LED5);  // RS485 LED
+  }
+}
+
 #ifdef _USE_HW_CLI
 void cliUart(cli_args_t *args)
 {
