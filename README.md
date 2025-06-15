@@ -1,0 +1,2 @@
+# STM32G4_FDCAN
+Test CAN FD Board.
