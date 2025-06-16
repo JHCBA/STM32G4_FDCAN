@@ -44,12 +44,12 @@ void apInit(void)
   threadInit();
   
   // Initialize UART for debug output
-  uartOpen(HW_UART_CH_USB, 460800);
-  uartOpen(HW_UART_CH_EXT, 460800);
+  uartOpen(HW_UART_CH_USB, 115200);
+  uartOpen(HW_UART_CH_EXT, 115200);
   
   // Initialize CAN FD
-  canInit();
-  if (canOpen(_DEF_CAN1, CAN_NORMAL, CAN_FD_BRS, CAN_1M, CAN_5M) == false)
+	canInit();
+  if (canOpen(_DEF_CAN1, CAN_MONITOR, CAN_FD_BRS, CAN_500K, CAN_2M) == false)
   {
 	  SendUARTALL("CAN FD initialization failed\r\n");
   }
@@ -79,7 +79,7 @@ void apMain(void)
 {
     can_msg_t can_msg;
     static uint32_t button_count = 0;
-    uint8_t is_tx = 1;
+    uint8_t is_tx = 0;
     
     // For RX board: store latest messages for each ID
     #define MAX_MSG_IDS 100  // 최대 저장할 ID 개수
@@ -145,7 +145,7 @@ void apMain(void)
                     latest_msgs[slot].has_new_msg = true;
                 }
             }
-            
+
             // Print all updated messages every second
             if (millis() - rx_print_time >= 1000)
             {
@@ -156,15 +156,23 @@ void apMain(void)
                     if (latest_msgs[i].has_new_msg)
                     {
                         char rx_buf[256];
-                        int len = snprintf(rx_buf, sizeof(rx_buf), "CAN FD RX: ID=0x%lX, DLC=%d, Data=",
-                                         latest_msgs[i].msg.id, latest_msgs[i].msg.length);
-                        
-                        for(int j = 0; j < latest_msgs[i].msg.length; j++)
+                        int len = 0;
+
+                        len = snprintf(rx_buf, sizeof(rx_buf), "CAN FD RX: ID=0x%lX, DLC=%d, Data=",
+                                       latest_msgs[i].msg.id, latest_msgs[i].msg.length);
+
+                        for (int j = 0; j < latest_msgs[i].msg.length; j++)
                         {
-                            len += snprintf(rx_buf + len, sizeof(rx_buf) - len, "%02X ", latest_msgs[i].msg.data[j]);
+                            if (len < sizeof(rx_buf) - 4) // "XX " + 널 포함 여유
+                            {
+                                len += snprintf(rx_buf + len, sizeof(rx_buf) - len, "%02X ", latest_msgs[i].msg.data[j]);
+                            }
                         }
+
                         snprintf(rx_buf + len, sizeof(rx_buf) - len, "\r\n");
-                        SendUARTALL(rx_buf);
+
+                        SendUARTALL("%s", rx_buf);
+
                         
                         latest_msgs[i].has_new_msg = false;
                     }

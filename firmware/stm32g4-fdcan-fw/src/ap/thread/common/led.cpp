@@ -44,7 +44,7 @@ bool ledThreadupdate(void)
   static uint32_t pre_time;
 
 
-  if (millis()-pre_time >= 500)
+  if (millis()-pre_time >= 5000)
   {
     pre_time = millis();
     ledToggle(_DEF_LED1);
