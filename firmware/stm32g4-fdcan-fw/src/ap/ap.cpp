@@ -5,6 +5,19 @@ static uint32_t pre_time = 0;
 static uint32_t rx_counter = 0;
 static uint32_t init_time = 0;
 static bool is_initialized = false;
+#define FILTERED_ID_COUNT 5
+
+const uint32_t filter_ids[FILTERED_ID_COUNT] = {0xA0, 0x60, 0x100, 0xEA, 0x125};
+
+// 해당 ID가 필터 대상인지 확인하는 함수
+bool is_filtered_id(uint32_t id) {
+    for (int i = 0; i < FILTERED_ID_COUNT; i++) {
+        if (filter_ids[i] == id)
+            return true;
+    }
+    return false;
+}
+
 
 // CAN 메시지 송신을 위한 구조체 정의
 typedef struct {
@@ -126,7 +139,7 @@ void apMain(void)
             {
                 can_msg_t rx_msg;
                 canMsgRead(_DEF_CAN1, &rx_msg);
-                
+
                 // Find or create slot for this ID
                 int slot = -1;
                 for(int i = 0; i < MAX_MSG_IDS; i++)
@@ -137,7 +150,7 @@ void apMain(void)
                         break;
                     }
                 }
-                
+
                 if (slot != -1)
                 {
                     latest_msgs[slot].id = rx_msg.id;
@@ -147,14 +160,18 @@ void apMain(void)
             }
 
             // Print all updated messages every second
-            if (millis() - rx_print_time >= 1000)
+            if (millis() - rx_print_time >= 100)
             {
                 rx_print_time = millis();
-                
-                for(int i = 0; i < MAX_MSG_IDS; i++)
+
+                for (int i = 0; i < MAX_MSG_IDS; i++)
                 {
                     if (latest_msgs[i].has_new_msg)
                     {
+                        // 필터링된 ID만 출력
+                        if (!is_filtered_id(latest_msgs[i].msg.id))
+                            continue;
+
                         char rx_buf[256];
                         int len = 0;
 
@@ -163,7 +180,7 @@ void apMain(void)
 
                         for (int j = 0; j < latest_msgs[i].msg.length; j++)
                         {
-                            if (len < sizeof(rx_buf) - 4) // "XX " + 널 포함 여유
+                            if (len < sizeof(rx_buf) - 4)
                             {
                                 len += snprintf(rx_buf + len, sizeof(rx_buf) - len, "%02X ", latest_msgs[i].msg.data[j]);
                             }
@@ -173,7 +190,6 @@ void apMain(void)
 
                         SendUARTALL("%s", rx_buf);
 
-                        
                         latest_msgs[i].has_new_msg = false;
                     }
                 }
