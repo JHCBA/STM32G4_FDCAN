@@ -1,0 +1,3 @@
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/fault.c:13:6:faultInit	8	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/fault.c:43:6:faultIsReady	0	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/fault.c:48:6:faultReset	8	static,ignoring_inline_asm

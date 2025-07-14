@@ -1,0 +1,8 @@
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/can_manager.c:132:6:can_tx_init	8	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/can_manager.c:203:6:can_rx_init	8	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/can_manager.c:70:6:can_manager_init	24	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/can_manager.c:221:6:can_rx_process	120	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/can_manager.c:358:6:can_error_recovery	8	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/can_manager.c:145:6:can_tx_process	112	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/can_manager.c:298:6:can_error_check	24	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/can_manager.c:114:6:can_manager_process	8	static

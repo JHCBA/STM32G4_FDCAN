@@ -1,0 +1,15 @@
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:758:16:USBD_CDC_EP0_RxReady	8	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:785:17:USBD_CDC_GetFSCfgDesc	0	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:799:17:USBD_CDC_GetHSCfgDesc	0	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:813:17:USBD_CDC_GetOtherSpeedCfgDesc	0	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:826:10:USBD_CDC_GetDeviceQualifierDescriptor	0	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:732:16:USBD_CDC_DataOut	16	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:691:16:USBD_CDC_DataIn	24	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:587:16:USBD_CDC_Setup	32	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:552:16:USBD_CDC_DeInit	16	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:468:16:USBD_CDC_Init	16	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:839:9:USBD_CDC_RegisterInterface	0	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:858:9:USBD_CDC_SetTxBuffer	0	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:880:9:USBD_CDC_SetRxBuffer	0	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:900:9:USBD_CDC_TransmitPacket	8	static
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc.c:933:9:USBD_CDC_ReceivePacket	8	static

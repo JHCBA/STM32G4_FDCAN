@@ -1,0 +1,14 @@
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:238:15:CDC_DeInit_FS	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:253:15:CDC_Control_FS	7
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:445:15:CDC_TransmitCplt_FS	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:223:15:CDC_Init_FS	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:366:15:CDC_Receive_FS	3
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:59:6:cdcIfInit	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:68:10:cdcIfAvailable	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:73:9:cdcIfRead	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:131:10:cdcIfGetBaud	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:136:6:cdcIfIsConnected	2
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:82:10:cdcIfWrite	6
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:162:9:cdcIfGetType	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:167:9:CDC_SoF_ISR	7
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/hw/driver/usb/usb_cdc/usbd_cdc_if.c:419:9:CDC_Transmit_FS	2

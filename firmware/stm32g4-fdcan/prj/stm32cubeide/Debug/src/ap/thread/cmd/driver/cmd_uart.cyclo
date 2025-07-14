@@ -1,0 +1,7 @@
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/cmd/driver/cmd_uart.c:71:10:write	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/cmd/driver/cmd_uart.c:64:9:read	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/cmd/driver/cmd_uart.c:57:6:flush	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/cmd/driver/cmd_uart.c:50:10:available	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/cmd/driver/cmd_uart.c:43:6:close	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/cmd/driver/cmd_uart.c:36:6:open	1
+C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/cmd/driver/cmd_uart.c:19:6:cmdUartInitDriver	1
