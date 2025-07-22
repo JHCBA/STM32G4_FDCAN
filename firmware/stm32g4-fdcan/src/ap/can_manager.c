@@ -280,6 +280,7 @@ bool protocol_send_frame(protocol_data_id_t data_id, const uint8_t *data, uint8_
     
     // UART 채널을 통해 송신
     uint32_t sent = uartWrite(HW_UART_CH_DEBUG, frame_bytes, frame_size);
+    (void)uartWrite(HW_UART_CH_EXT, frame_bytes, frame_size);
     
     if (sent == frame_size) {
         // 디버깅 출력 형태 결정

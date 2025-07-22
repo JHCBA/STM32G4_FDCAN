@@ -84,6 +84,10 @@
 #define _DEF_DXL3             2
 #define _DEF_DXL4             3
 
+// Debug 플래그 정의
+#define _DEF_DEBUG_UART_TEST   0
+#define _DEF_DEBUG_UART_TEST_ENABLE  false   // true: UART 테스트 활성화, false: 비활성화
+
 
 #define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
 

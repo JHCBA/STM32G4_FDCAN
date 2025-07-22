@@ -6,6 +6,7 @@
 
 void apInit(void);
 void apMain(void);
+void uart_test_send_message(void);
 
 
 #endif
