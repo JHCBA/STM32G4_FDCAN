@@ -42,8 +42,9 @@ void all_printf(const char *fmt, ...)
     va_end(args);
 
     // 물리적 UART로 출력
-    uartPrintf(HW_UART_CH_DEBUG, buf);
-    
+    uartPrintf(HW_UART_CH_DEBUG, buf);    
+    uartPrintf(HW_UART_CH_EXT, buf);
+
     // USB CDC로도 출력
     if (cdcIsConnect()) {
         cdcWrite((uint8_t*)buf, strlen(buf));
