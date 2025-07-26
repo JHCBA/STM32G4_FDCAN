@@ -79,8 +79,7 @@ static const sample_can_msg_t sample_messages[] = {
 #define SAMPLE_MSG_COUNT (sizeof(sample_messages) / sizeof(sample_messages[0]))
 
 // 필터링할 CAN ID 목록
-#define FILTERED_ID_COUNT 5
-static const uint32_t filter_ids[FILTERED_ID_COUNT] = {0xA0, 0x60, 0x100, 0xEA, 0x125};
+#define FILTERED_ID_COUNT 10
 
 // CAN ID to Protocol ID 매핑 테이블
 // 필터링된 CAN ID들을 순서대로 프로토콜 Data ID로 매핑
@@ -89,7 +88,12 @@ static const can_to_protocol_map_t can_protocol_map[] = {
     {0x60,  PROTOCOL_ID_APS,            100},  // APS
     {0x100, PROTOCOL_ID_BPS,            100},  // BPS
     {0xEA,  PROTOCOL_ID_STEERING_ANGLE, 100},  // Steering Angle
-    {0x125, PROTOCOL_ID_EPS_ERR,        100},  // EPS Error
+    {0x125, PROTOCOL_ID_EPS_ERR,        1000},  // EPS Error
+    {0x40, PROTOCOL_ID_GEAR,    1000},  // Gear Status
+    {0x413, PROTOCOL_ID_TURN_SIGNAL,    100},  // Turn Signal
+    {0x411, PROTOCOL_ID_DOOR_OPEN,     100},  // Door Open
+    {0x411, PROTOCOL_ID_SEAT_BELT,      100},  // Seat Belt
+    {0x1BA, PROTOCOL_ID_RADAR,          100},  // Radar
 };
 
 #define CAN_PROTOCOL_MAP_SIZE (sizeof(can_protocol_map) / sizeof(can_protocol_map[0]))
@@ -183,38 +187,103 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
             break;
             
         case PROTOCOL_ID_APS:
-            // 엑셀 페달 (1바이트)
-            if (can_length >= 1) {
-                protocol_data[0] = can_data[0];  // 0~100%
-                *protocol_length = 1;
-                return true;
+            // 엑셀 페달 (ACCELERATOR 메시지 파싱)
+            if (can_length >= 8) {
+                accelerator_msg_t accel_msg;
+                if (parse_accelerator_message(can_data, can_length, &accel_msg)) {
+                    // 엑셀 페달 값을 0-100%로 변환
+                    float pedal_percent = calculate_accelerator_pedal_percent(&accel_msg);
+                    uint8_t pedal_protocol = (uint8_t)pedal_percent;
+                    protocol_data[0] = pedal_protocol;
+                    *protocol_length = 1;
+                    
+                    if (DEBUG_CAN) {
+                        all_printf("CAN 0x35: APS=%.1f%%, Gear=%d, Counter=%d\n", 
+                                 pedal_percent, accel_msg.gear, accel_msg.counter);
+                    }
+                    
+                    return true;
+                }
             }
             break;
             
         case PROTOCOL_ID_BPS:
-            // 브레이크 페달 (1바이트)
-            if (can_length >= 1) {
-                protocol_data[0] = can_data[0];  // 0~100%
-                *protocol_length = 1;
-                return true;
+            // 브레이크 페달 (BRAKE 메시지 파싱)
+            if (can_length >= 8) {
+                brake_msg_t brake_msg;
+                if (parse_brake_message(can_data, can_length, &brake_msg)) {
+                    // 브레이크 위치를 0-100%로 변환
+                    float brake_percent = calculate_brake_pedal_percent(&brake_msg);
+                    uint8_t brake_protocol = (uint8_t)brake_percent;
+                    protocol_data[0] = brake_protocol;
+                    *protocol_length = 1;
+                    
+                    if (DEBUG_CAN) {
+                        all_printf("CAN 0x65: BPS=%.1f%%, Pressed=%d, Counter=%d\n", 
+                                 brake_percent, brake_msg.brake_pressed, brake_msg.counter);
+                    }
+                    
+                    return true;
+                }
             }
             break;
             
         case PROTOCOL_ID_STEERING_ANGLE:
-            // 스티어링 앵글 (6바이트)
+            // 스티어링 앵글 (STEERING_SENSORS 메시지 파싱)
             if (can_length >= 6) {
-                // Byte0-1: 각도(deg) [-900 ~ 900]
-                protocol_data[0] = can_data[0];
-                protocol_data[1] = can_data[1];
-                // Byte2: 각속도(deg/s) [-127 ~ 128]
-                protocol_data[2] = can_data[2];
-                // Byte3-4: 토크 (Nm) [-1000 ~ 1000]
-                protocol_data[3] = can_data[3];
-                protocol_data[4] = can_data[4];
-                // Byte5: 핸들 입력 여부 [0 ~ 1]
-                protocol_data[5] = can_data[5];
-                *protocol_length = 6;
-                return true;
+                steering_sensors_msg_t steering_msg;
+                if (parse_steering_sensors_message(can_data, can_length, &steering_msg)) {
+                    // 스티어링 앵글을 -128~127 범위로 변환
+                    float angle_deg = calculate_steering_angle_deg_sensors(&steering_msg);
+                    int8_t angle_protocol = (int8_t)(angle_deg * 127.0f / 900.0f);
+                    if (angle_protocol < -128) angle_protocol = -128;
+                    if (angle_protocol > 127) angle_protocol = 127;
+                    
+                    // 스티어링 레이트를 0-255 범위로 변환
+                    float rate_deg_per_sec = calculate_steering_rate_deg_per_sec(&steering_msg);
+                    uint8_t rate_protocol = (uint8_t)(rate_deg_per_sec * 255.0f / 1000.0f);
+                    if (rate_protocol > 255) rate_protocol = 255;
+                    
+                    protocol_data[0] = (uint8_t)angle_protocol;
+                    protocol_data[1] = rate_protocol;
+                    *protocol_length = 2;
+                    
+                    if (DEBUG_CAN) {
+                        all_printf("CAN 0x125: Angle=%.1f deg, Rate=%.1f deg/s, Counter=%d\n", 
+                                 angle_deg, rate_deg_per_sec, steering_msg.counter);
+                    }
+                    
+                    return true;
+                }
+            }
+            break;
+            
+        case PROTOCOL_ID_GEAR:
+            // 기어 상태 (GEAR 메시지 파싱)
+            if (can_length >= 4) {
+                gear_msg_t gear_msg;
+                if (parse_gear_message(can_data, can_length, &gear_msg)) {
+                    // 기어 상태를 프로토콜 형식으로 변환
+                    gear_state_t gear_state = get_gear_state(&gear_msg);
+                    uint8_t gear_protocol = 0;
+                    switch (gear_state) {
+                        case GEAR_P: gear_protocol = 0; break;
+                        case GEAR_R: gear_protocol = 1; break;
+                        case GEAR_N: gear_protocol = 2; break;
+                        case GEAR_D: gear_protocol = 3; break;
+                        default: gear_protocol = 0; break;
+                    }
+                    
+                    protocol_data[0] = gear_protocol;
+                    *protocol_length = 1;
+                    
+                    if (DEBUG_CAN) {
+                        all_printf("CAN 0x45: Gear=%d (raw=%d), Counter=%d\n", 
+                                 gear_protocol, gear_msg.gear, gear_msg.counter);
+                    }
+                    
+                    return true;
+                }
             }
             break;
             
@@ -227,48 +296,97 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
             }
             break;
             
-        case PROTOCOL_ID_GEAR:
-            // 기어 상태 (1바이트)
-            if (can_length >= 1) {
-                protocol_data[0] = can_data[0];  // 0:P, 1:R, 2:N, 3:D
-                *protocol_length = 1;
-                return true;
-            }
-            break;
-            
         case PROTOCOL_ID_TURN_SIGNAL:
-            // 방향지시등 상태 (1바이트)
-            if (can_length >= 1) {
-                protocol_data[0] = can_data[0];  // Bit0: Left, Bit1: Right
-                *protocol_length = 1;
-                return true;
+            // 방향지시등 상태 (BLINKERS 메시지 파싱)
+            if (can_length >= 2) {
+                blinkers_msg_t blinkers_msg;
+                if (parse_blinkers_message(can_data, can_length, &blinkers_msg)) {
+                    // 방향지시등 상태를 비트로 조합
+                    uint8_t turn_signal = 0;
+                    if (blinkers_msg.left_stalk || blinkers_msg.left_lamp) turn_signal |= 0x01;  // 좌측
+                    if (blinkers_msg.right_stalk || blinkers_msg.right_lamp) turn_signal |= 0x02; // 우측
+                    
+                    protocol_data[0] = turn_signal;
+                    *protocol_length = 1;
+                    
+                    if (DEBUG_CAN) {
+                        all_printf("CAN 0x413: Turn Signal=0x%02X (L=%d, R=%d)\n", 
+                                 turn_signal, blinkers_msg.left_stalk, blinkers_msg.right_stalk);
+                    }
+                    
+                    return true;
+                }
             }
             break;
             
         case PROTOCOL_ID_DOOR_OPEN:
-            // 차량 문 열림 상태 (1바이트)
-            if (can_length >= 1) {
-                protocol_data[0] = can_data[0];  // Bit별 문 상태
-                *protocol_length = 1;
-                return true;
+            // 차량 문 열림 상태 (DOORS_SEATBELTS 메시지 파싱)
+            if (can_length >= 2) {
+                doors_seatbelts_msg_t doors_msg;
+                if (parse_doors_seatbelts_message(can_data, can_length, &doors_msg)) {
+                    // 문 상태를 비트로 조합
+                    uint8_t door_status = 0;
+                    if (doors_msg.driver_door) door_status |= 0x01;      // 운전석 문
+                    if (doors_msg.passenger_door) door_status |= 0x02;   // 조수석 문
+                    if (doors_msg.driver_rear_door) door_status |= 0x04; // 운전석 뒷문
+                    if (doors_msg.passenger_rear_door) door_status |= 0x08; // 조수석 뒷문
+                    
+                    protocol_data[0] = door_status;
+                    *protocol_length = 1;
+                    
+                    if (DEBUG_CAN) {
+                        all_printf("CAN 0x411: Door Status=0x%02X (Driver=%d, Passenger=%d)\n", 
+                                 door_status, doors_msg.driver_door, doors_msg.passenger_door);
+                    }
+                    
+                    return true;
+                }
             }
             break;
             
         case PROTOCOL_ID_SEAT_BELT:
-            // 안전벨트 상태 (1바이트)
-            if (can_length >= 1) {
-                protocol_data[0] = can_data[0];  // Bit0: 미착용 여부
-                *protocol_length = 1;
-                return true;
+            // 안전벨트 상태 (DOORS_SEATBELTS 메시지 파싱)
+            if (can_length >= 2) {
+                doors_seatbelts_msg_t seatbelt_msg;
+                if (parse_doors_seatbelts_message(can_data, can_length, &seatbelt_msg)) {
+                    // 안전벨트 상태를 비트로 조합
+                    uint8_t seatbelt_status = 0;
+                    if (seatbelt_msg.driver_seatbelt) seatbelt_status |= 0x01;      // 운전석 미착용
+                    if (seatbelt_msg.passenger_seatbelt) seatbelt_status |= 0x02;   // 조수석 미착용
+                    
+                    protocol_data[0] = seatbelt_status;
+                    *protocol_length = 1;
+                    
+                    if (DEBUG_CAN) {
+                        all_printf("CAN 0x411: Seatbelt Status=0x%02X (Driver=%d, Passenger=%d)\n", 
+                                 seatbelt_status, seatbelt_msg.driver_seatbelt, seatbelt_msg.passenger_seatbelt);
+                    }
+                    
+                    return true;
+                }
             }
             break;
             
         case PROTOCOL_ID_RADAR:
-            // 레이더 상태 (1바이트)
-            if (can_length >= 1) {
-                protocol_data[0] = can_data[0];  // Bit0: 좌측, Bit1: 우측
-                *protocol_length = 1;
-                return true;
+            // 레이더 상태 (SCC_CONTROL 메시지 파싱)
+            if (can_length >= 24) {
+                scc_control_msg_t scc_msg;
+                if (parse_scc_control_message(can_data, can_length, &scc_msg)) {
+                    // 레이더 상태를 비트로 조합
+                    uint8_t radar_status = 0;
+                    if (scc_msg.obj_valid) radar_status |= 0x01;  // 객체 감지됨
+                    if (scc_msg.acc_mode > 0) radar_status |= 0x02; // ACC 활성화
+                    
+                    protocol_data[0] = radar_status;
+                    *protocol_length = 1;
+                    
+                    if (DEBUG_CAN) {
+                        all_printf("CAN 0x1A0: Radar Status=0x%02X (Obj=%d, ACC=%d)\n", 
+                                 radar_status, scc_msg.obj_valid, scc_msg.acc_mode);
+                    }
+                    
+                    return true;
+                }
             }
             break;
             
@@ -1029,6 +1147,12 @@ void can_mode_switch(void)
             break;
         case CAN_DEBUG_MODE:
             can_debug_mode_init();
+            break;
+        case CAN_SCAN_MODE:
+            can_scan_mode_init();
+            break;
+        default:
+            can_rx_init();  // 기본값
             break;
     }
     

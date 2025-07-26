@@ -292,6 +292,7 @@ float calculate_vehicle_speed(const wheel_speeds_msg_t *msg);
 vehicle_direction_t get_vehicle_direction(const wheel_speeds_msg_t *msg);
 float calculate_steering_angle_deg(const mdps_msg_t *msg);
 float calculate_steering_angle_deg_sensors(const steering_sensors_msg_t *msg);
+float calculate_steering_rate_deg_per_sec(const steering_sensors_msg_t *msg);
 float calculate_accelerator_pedal_percent(const accelerator_msg_t *msg);
 float calculate_brake_pedal_percent(const brake_msg_t *msg);
 gear_state_t get_gear_state(const gear_msg_t *msg);

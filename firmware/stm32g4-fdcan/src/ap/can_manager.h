@@ -7,6 +7,7 @@ extern "C" {
 
 #include "hw.h"
 #include "comm_handler.h"
+#include "can_db.h"
 
 // DEBUG 플래그 - 디버깅 메시지 출력 제어
 #ifndef DEBUG_CAN_PROTOCOL
