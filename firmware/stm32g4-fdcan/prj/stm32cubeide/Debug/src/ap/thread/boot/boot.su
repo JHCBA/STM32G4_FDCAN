@@ -1,4 +1,0 @@
-C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/boot/boot.c:7:10:bootVerifyUpdate	184	static
-C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/boot/boot.c:76:10:bootVerifyFirm	168	static
-C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/boot/boot.c:140:10:bootUpdateFirm	552	static
-C:/Users/JH/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-fdcan/src/ap/thread/boot/boot.c:213:10:bootJumpFirm	16	static
