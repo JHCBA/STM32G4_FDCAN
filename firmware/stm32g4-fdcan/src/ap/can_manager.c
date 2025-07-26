@@ -1,4 +1,5 @@
 #include "can_manager.h"
+#include "can_db.h"
 
 // DEBUG 출력 매크로
 #if DEBUG_CAN_PROTOCOL
@@ -6,6 +7,10 @@
 #else
 #define DEBUG_PRINT(fmt, ...) do {} while(0)
 #endif
+
+// 디버깅 매크로들
+#define DEBUG_CAN 0  // CAN 디버깅 비활성화 (프로토콜 모드에서는 출력 안함)
+#define DEBUG_CAN_DETAIL 0  // 1로 설정하면 상세 정보 출력
 
 // CAN 모드 설정
 can_mode_t current_can_mode = CAN_RELEASE;  // 기본값: 프로토콜 변환 모드
@@ -146,11 +151,34 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
     // 데이터 ID별 변환 로직
     switch (data_id) {
         case PROTOCOL_ID_VEHICLE_SPEED:
-            // 차량 속도 (1바이트)
-            if (can_length >= 1) {
-                protocol_data[0] = can_data[0];  // 0~255 m/s
-                *protocol_length = 1;
-                return true;
+            // 차량 속도 (WHEEL_SPEEDS 메시지 파싱)
+            if (can_length >= 16) {
+                wheel_speeds_msg_t wheel_msg;
+                if (parse_wheel_speeds_message(can_data, can_length, &wheel_msg)) {
+                    // 평균 차량 속도 계산 (kph)
+                    float avg_speed = calculate_vehicle_speed(&wheel_msg);
+                    
+                    // kph를 프로토콜 데이터로 변환 (0-255 범위로 스케일링)
+                    uint8_t speed_protocol = (uint8_t)(avg_speed * 255.0f / 200.0f); // 최대 200kph로 정규화
+                    if (speed_protocol > 255) speed_protocol = 255;
+                    
+                    protocol_data[0] = speed_protocol;
+                    *protocol_length = 1;
+                    
+                    // 디버깅 정보 출력
+                    if (DEBUG_CAN) {
+                        vehicle_direction_t direction = get_vehicle_direction(&wheel_msg);
+                        all_printf("CAN 0xA0: Speed=%.1f kph, Dir=%d, Counter=%d\n", 
+                                 avg_speed, direction, wheel_msg.counter);
+                        
+                        // 상세 디버깅 정보 (선택적)
+                        if (DEBUG_CAN_DETAIL) {
+                            print_wheel_speeds_message(&wheel_msg);
+                        }
+                    }
+                    
+                    return true;
+                }
             }
             break;
             
@@ -542,6 +570,23 @@ void can_rx_process(void)
             protocol_data_id_t data_id;
             if (protocol_map_can_to_data_id(rx_msg.id, &data_id))
             {
+                // 0xA0 (WHEEL_SPEEDS) 메시지 특별 처리 (프로토콜 모드에서는 출력 안함)
+                if (rx_msg.id == CAN_ID_WHEEL_SPEEDS && rx_msg.length >= 16) {
+                    wheel_speeds_msg_t wheel_msg;
+                    if (parse_wheel_speeds_message(rx_msg.data, rx_msg.length, &wheel_msg)) {
+                        // 프로토콜 모드에서는 디버깅 출력 안함
+                        // float avg_speed = calculate_vehicle_speed(&wheel_msg);
+                        // vehicle_direction_t direction = get_vehicle_direction(&wheel_msg);
+                        // all_printf("WHEEL_SPEEDS: Speed=%.1f kph, Dir=%d, Counter=%d\n", 
+                        //          avg_speed, direction, wheel_msg.counter);
+                        
+                        // 상세 정보 출력 (선택적)
+                        if (DEBUG_CAN_DETAIL) {
+                            print_wheel_speeds_message(&wheel_msg);
+                        }
+                    }
+                }
+                
                 // 해당 ID의 추적기 찾기
                 int tracker_index = -1;
                 for (int i = 0; i < MAX_RX_IDS; i++) {
