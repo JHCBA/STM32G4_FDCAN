@@ -74,7 +74,7 @@ typedef enum {
 typedef struct {
     uint16_t checksum;              // 0-15: 16비트
     uint8_t counter;                // 16-23: 8비트
-    uint8_t accelerator_pedal;      // 40-47: 8비트 (0-255)
+    uint16_t accelerator_pedal;      // 88-98: 10비트
     uint8_t gear;                   // 192-194: 3비트
 } accelerator_msg_t;
 
@@ -206,6 +206,22 @@ typedef struct {
     uint8_t use_alt_lamp;           // 62: 1비트
 } blinkers_msg_t;
 
+// BLINDSPOTS_REAR_CORNERS 메시지 구조체
+typedef struct {
+    uint16_t checksum;              // 0-15: 16비트
+    uint8_t counter;                // 16-23: 8비트
+    uint8_t left_blocked;           // 24: 1비트
+    uint8_t left_mb;                // 30: 1비트
+    uint8_t more_left_prob;         // 32: 1비트
+    uint8_t fl_indicator;           // 46-51: 6비트
+    uint8_t fr_indicator;           // 54-59: 6비트
+    uint8_t right_blocked;          // 64: 1비트
+    uint8_t collision_avoidance_active; // 68: 1비트
+    uint8_t new_signal_2;           // 96: 1비트
+    uint8_t fl_indicator_alt;       // 138: 1비트
+    uint8_t fr_indicator_alt;       // 141: 1비트
+} blindspots_rear_corners_msg_t;
+
 // 변환 함수들
 static inline float wheel_speed_to_kph(uint16_t raw_speed) {
     return (float)raw_speed * 0.03125f;
@@ -216,19 +232,21 @@ static inline uint16_t kph_to_wheel_speed(float kph) {
 }
 
 static inline float steering_angle_to_deg(uint16_t raw_angle) {
-    return (float)raw_angle * (-0.1f);
+    // 16비트 값을 signed로 올바르게 변환
+    int16_t signed_angle = (int16_t)raw_angle;
+    return (float)signed_angle * (-0.1f);
 }
 
 static inline uint16_t deg_to_steering_angle(float deg) {
     return (uint16_t)(deg / (-0.1f));
 }
 
-static inline float brake_position_to_percent(uint16_t raw_position) {
-    return (float)raw_position * 100.0f / 65535.0f;
-}
-
 static inline uint16_t percent_to_brake_position(float percent) {
     return (uint16_t)(percent * 65535.0f / 100.0f);
+}
+
+static inline float brake_position_to_percent(uint16_t raw_position) {
+    return (float)raw_position * 100.0f / 767.0f;
 }
 
 // 메시지 파싱 함수들
@@ -244,6 +262,7 @@ bool parse_scc_control_message(const uint8_t *data, uint8_t length, scc_control_
 bool parse_cruise_buttons_message(const uint8_t *data, uint8_t length, cruise_buttons_msg_t *msg);
 bool parse_doors_seatbelts_message(const uint8_t *data, uint8_t length, doors_seatbelts_msg_t *msg);
 bool parse_blinkers_message(const uint8_t *data, uint8_t length, blinkers_msg_t *msg);
+bool parse_blindspots_rear_corners_message(const uint8_t *data, uint8_t length, blindspots_rear_corners_msg_t *msg);
 
 // 메시지 생성 함수들
 bool create_accelerator_message(const accelerator_msg_t *msg, uint8_t *data, uint8_t *length);
@@ -258,6 +277,7 @@ bool create_scc_control_message(const scc_control_msg_t *msg, uint8_t *data, uin
 bool create_cruise_buttons_message(const cruise_buttons_msg_t *msg, uint8_t *data, uint8_t *length);
 bool create_doors_seatbelts_message(const doors_seatbelts_msg_t *msg, uint8_t *data, uint8_t *length);
 bool create_blinkers_message(const blinkers_msg_t *msg, uint8_t *data, uint8_t *length);
+bool create_blindspots_rear_corners_message(const blindspots_rear_corners_msg_t *msg, uint8_t *data, uint8_t *length);
 
 // 체크섬 계산 함수들
 uint16_t calculate_accelerator_checksum(const uint8_t *data, uint8_t length);
@@ -272,6 +292,7 @@ uint16_t calculate_scc_control_checksum(const uint8_t *data, uint8_t length);
 uint16_t calculate_cruise_buttons_checksum(const uint8_t *data, uint8_t length);
 uint16_t calculate_doors_seatbelts_checksum(const uint8_t *data, uint8_t length);
 uint16_t calculate_blinkers_checksum(const uint8_t *data, uint8_t length);
+uint16_t calculate_blindspots_rear_corners_checksum(const uint8_t *data, uint8_t length);
 
 // 메시지 유효성 검사 함수들
 bool validate_accelerator_message(const uint8_t *data, uint8_t length);
@@ -286,6 +307,7 @@ bool validate_scc_control_message(const uint8_t *data, uint8_t length);
 bool validate_cruise_buttons_message(const uint8_t *data, uint8_t length);
 bool validate_doors_seatbelts_message(const uint8_t *data, uint8_t length);
 bool validate_blinkers_message(const uint8_t *data, uint8_t length);
+bool validate_blindspots_rear_corners_message(const uint8_t *data, uint8_t length);
 
 // 계산 함수들
 float calculate_vehicle_speed(const wheel_speeds_msg_t *msg);
@@ -310,6 +332,7 @@ void print_scc_control_message(const scc_control_msg_t *msg);
 void print_cruise_buttons_message(const cruise_buttons_msg_t *msg);
 void print_doors_seatbelts_message(const doors_seatbelts_msg_t *msg);
 void print_blinkers_message(const blinkers_msg_t *msg);
+void print_blindspots_rear_corners_message(const blindspots_rear_corners_msg_t *msg);
 
 // 테스트 함수들
 void test_all_can_messages(void);

@@ -9,11 +9,35 @@
 #endif
 
 // 디버깅 매크로들
-#define DEBUG_CAN 0  // CAN 디버깅 비활성화 (프로토콜 모드에서는 출력 안함)
-#define DEBUG_CAN_DETAIL 0  // 1로 설정하면 상세 정보 출력
+#define DEBUG_CAN 0  // CAN 디버깅 활성화 (1로 설정하면 디버그 목록의 ID만 출력)
+
+// DEBUG_CAN이 1일 때 출력할 CAN ID 목록
+static const uint32_t debug_can_ids[] = {
+    //0xEA,   // MDPS (Steering Angle)
+    //0xA0,   // WHEEL_SPEEDS (Vehicle Speed)
+    //0x60,   // BPS
+    //0x100,  // ACCELERATOR_BRAKE_ALT (BPS)
+    //0x40,   // GEAR_ALT_2 (Gear)
+    //0x125,  // STEERING_SENSORS (EPS Error)
+    //0x413,  // BLINKERS (Turn Signal)
+    //0x411,  // DOORS_SEATBELTS (Door/Seatbelt)
+    0x1BA,  // BLINDSPOTS_REAR_CORNERS (Radar)
+};
+
+#define DEBUG_CAN_IDS_COUNT (sizeof(debug_can_ids) / sizeof(debug_can_ids[0]))
+
+// CAN ID가 디버그 목록에 있는지 확인하는 함수
+static bool is_debug_can_id(uint32_t can_id) {
+    for (int i = 0; i < DEBUG_CAN_IDS_COUNT; i++) {
+        if (debug_can_ids[i] == can_id) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // CAN 모드 설정
-can_mode_t current_can_mode = CAN_RELEASE;  // 기본값: 프로토콜 변환 모드
+can_mode_t current_can_mode = CAN_FILTER_LISTEN;  // 기본값: 필터 리스닝 모드
 
 // RX 관련 변수들
 #define MAX_RX_IDS 30  // 최대 추적할 수 있는 CAN ID 개수
@@ -85,18 +109,32 @@ static const sample_can_msg_t sample_messages[] = {
 // 필터링된 CAN ID들을 순서대로 프로토콜 Data ID로 매핑
 static const can_to_protocol_map_t can_protocol_map[] = {
     {0xA0,  PROTOCOL_ID_VEHICLE_SPEED,   100},  // Vehicle Speed
-    {0x60,  PROTOCOL_ID_APS,            100},  // APS
-    {0x100, PROTOCOL_ID_BPS,            100},  // BPS
+    {0x60,  PROTOCOL_ID_BPS,            100},  // APS
+    {0x100, PROTOCOL_ID_APS,            100},  // BPS
     {0xEA,  PROTOCOL_ID_STEERING_ANGLE, 100},  // Steering Angle
-    {0x125, PROTOCOL_ID_EPS_ERR,        1000},  // EPS Error
-    {0x40, PROTOCOL_ID_GEAR,    1000},  // Gear Status
+    {0x125, PROTOCOL_ID_EPS_ERR,        100},  // EPS Error
+    {0x40, PROTOCOL_ID_GEAR,    100},  // Gear Status
     {0x413, PROTOCOL_ID_TURN_SIGNAL,    100},  // Turn Signal
-    {0x411, PROTOCOL_ID_DOOR_OPEN,     100},  // Door Open
-    {0x411, PROTOCOL_ID_SEAT_BELT,      100},  // Seat Belt
+    {0x411, PROTOCOL_ID_DOOR_OPEN,     1000},  // Door Open
+    {0x411, PROTOCOL_ID_SEAT_BELT,      1000},  // Seat Belt
     {0x1BA, PROTOCOL_ID_RADAR,          100},  // Radar
 };
 
 #define CAN_PROTOCOL_MAP_SIZE (sizeof(can_protocol_map) / sizeof(can_protocol_map[0]))
+
+// 프로토콜 ID별 설명 문자열
+static const char* protocol_descriptions[] = {
+    [PROTOCOL_ID_VEHICLE_SPEED] = "Vehicle Speed",
+    [PROTOCOL_ID_APS] = "Accelerator Pedal",
+    [PROTOCOL_ID_BPS] = "Brake Pedal", 
+    [PROTOCOL_ID_STEERING_ANGLE] = "Steering Angle",
+    [PROTOCOL_ID_EPS_ERR] = "EPS Error",
+    [PROTOCOL_ID_GEAR] = "Gear Status",
+    [PROTOCOL_ID_TURN_SIGNAL] = "Turn Signal",
+    [PROTOCOL_ID_DOOR_OPEN] = "Door Open",
+    [PROTOCOL_ID_SEAT_BELT] = "Seat Belt",
+    [PROTOCOL_ID_RADAR] = "Radar Status"
+};
 
 // 정적 변수들
 static uint32_t tx_time = 0;
@@ -161,24 +199,30 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                 if (parse_wheel_speeds_message(can_data, can_length, &wheel_msg)) {
                     // 평균 차량 속도 계산 (kph)
                     float avg_speed = calculate_vehicle_speed(&wheel_msg);
-                    
                     // kph를 프로토콜 데이터로 변환 (0-255 범위로 스케일링)
-                    uint8_t speed_protocol = (uint8_t)(avg_speed * 255.0f / 200.0f); // 최대 200kph로 정규화
+                    uint8_t speed_protocol = (uint8_t)(avg_speed); // 최대 200kph로 정규화
                     if (speed_protocol > 255) speed_protocol = 255;
                     
                     protocol_data[0] = speed_protocol;
                     *protocol_length = 1;
                     
                     // 디버깅 정보 출력
-                    if (DEBUG_CAN) {
-                        vehicle_direction_t direction = get_vehicle_direction(&wheel_msg);
-                        all_printf("CAN 0xA0: Speed=%.1f kph, Dir=%d, Counter=%d\n", 
-                                 avg_speed, direction, wheel_msg.counter);
-                        
-                        // 상세 디버깅 정보 (선택적)
-                        if (DEBUG_CAN_DETAIL) {
-                            print_wheel_speeds_message(&wheel_msg);
+                    if (DEBUG_CAN && is_debug_can_id(can_id)) {
+                        // CAN 메시지 정보 출력
+                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        for (int i = 0; i < can_length && i < 64; i++) {
+                            all_printf("%02X ", can_data[i]);
                         }
+                        all_printf("\r\n");
+                        
+                        vehicle_direction_t direction = get_vehicle_direction(&wheel_msg);
+                        all_printf("CAN 0x%lX: Speed=%d kph, Dir=%d, Counter=%d (raw: %d,%d,%d,%d)\r\n", 
+                                 can_id, (int)avg_speed, direction, wheel_msg.counter, 
+                                 wheel_msg.wheel_speed_1, wheel_msg.wheel_speed_2, 
+                                 wheel_msg.wheel_speed_3, wheel_msg.wheel_speed_4);
+                        
+                        // 상세 디버깅 정보
+                        print_wheel_speeds_message(&wheel_msg);
                     }
                     
                     return true;
@@ -197,9 +241,16 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     protocol_data[0] = pedal_protocol;
                     *protocol_length = 1;
                     
-                    if (DEBUG_CAN) {
-                        all_printf("CAN 0x35: APS=%.1f%%, Gear=%d, Counter=%d\n", 
-                                 pedal_percent, accel_msg.gear, accel_msg.counter);
+                    if (DEBUG_CAN && is_debug_can_id(can_id)) {
+                        // CAN 메시지 정보 출력
+                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        for (int i = 0; i < can_length && i < 64; i++) {
+                            all_printf("%02X ", can_data[i]);
+                        }
+                        all_printf("\r\n");
+                        
+                        all_printf("CAN 0x%lX: APS=%d%%, Gear=%d, Counter=%d\r\n", 
+                                 can_id, (int)pedal_percent, accel_msg.gear, accel_msg.counter);
                     }
                     
                     return true;
@@ -218,9 +269,16 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     protocol_data[0] = brake_protocol;
                     *protocol_length = 1;
                     
-                    if (DEBUG_CAN) {
-                        all_printf("CAN 0x65: BPS=%.1f%%, Pressed=%d, Counter=%d\n", 
-                                 brake_percent, brake_msg.brake_pressed, brake_msg.counter);
+                    if (DEBUG_CAN && is_debug_can_id(can_id)) {
+                        // CAN 메시지 정보 출력
+                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        for (int i = 0; i < can_length && i < 64; i++) {
+                            all_printf("%02X ", can_data[i]);
+                        }
+                        all_printf("\r\n");
+                        
+                        all_printf("CAN 0x%lX: , bps=%d, BPS=%d%%, Pressed=%d, Counter=%d\r\n", 
+                                 can_id, brake_msg.brake_position, (int)brake_percent, brake_msg.brake_pressed, brake_msg.counter);
                     }
                     
                     return true;
@@ -229,28 +287,48 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
             break;
             
         case PROTOCOL_ID_STEERING_ANGLE:
-            // 스티어링 앵글 (STEERING_SENSORS 메시지 파싱)
-            if (can_length >= 6) {
-                steering_sensors_msg_t steering_msg;
-                if (parse_steering_sensors_message(can_data, can_length, &steering_msg)) {
-                    // 스티어링 앵글을 -128~127 범위로 변환
-                    float angle_deg = calculate_steering_angle_deg_sensors(&steering_msg);
-                    int8_t angle_protocol = (int8_t)(angle_deg * 127.0f / 900.0f);
-                    if (angle_protocol < -128) angle_protocol = -128;
-                    if (angle_protocol > 127) angle_protocol = 127;
+            // 스티어링 앵글 (MDPS 메시지 파싱)
+            if (can_length >= 18) {
+                mdps_msg_t mdps_msg;
+                if (parse_mdps_message(can_data, can_length, &mdps_msg)) {
+                    // 스티어링 앵글을 -900~900 범위로 변환 (bytes[16-17] 사용)
+                    uint16_t raw_angle = (can_data[17] << 8) | can_data[16];
+                    float angle_deg = steering_angle_to_deg(raw_angle);
+                    int16_t angle_protocol = (int16_t)angle_deg;
+                    if (angle_protocol < -900) angle_protocol = -900;
+                    if (angle_protocol > 900) angle_protocol = 900;
                     
-                    // 스티어링 레이트를 0-255 범위로 변환
-                    float rate_deg_per_sec = calculate_steering_rate_deg_per_sec(&steering_msg);
-                    uint8_t rate_protocol = (uint8_t)(rate_deg_per_sec * 255.0f / 1000.0f);
-                    if (rate_protocol > 255) rate_protocol = 255;
+                    // 각속도 계산 (이전 값과의 차이로 계산, 임시로 0으로 설정)
+                    int8_t angular_velocity = 0;  // TODO: 실제 각속도 계산 필요
                     
-                    protocol_data[0] = (uint8_t)angle_protocol;
-                    protocol_data[1] = rate_protocol;
-                    *protocol_length = 2;
+                    // 스티어링 토크를 -1000~1000 Nm 범위로 변환
+                    float torque_nm = ((float)mdps_msg.steering_col_torque * 0.005) - 20.48;
+                    int16_t torque_protocol = (int16_t)torque_nm;
+                    if (torque_protocol < -1000) torque_protocol = -1000;
+                    if (torque_protocol > 1000) torque_protocol = 1000;
                     
-                    if (DEBUG_CAN) {
-                        all_printf("CAN 0x125: Angle=%.1f deg, Rate=%.1f deg/s, Counter=%d\n", 
-                                 angle_deg, rate_deg_per_sec, steering_msg.counter);
+                    // 핸들 입력 여부 (토크가 일정 값 이상이면 1, 아니면 0)
+                    uint8_t handle_input = (torque_protocol > 100) ? 1 : 0;
+                    
+                    // 6바이트 프로토콜 데이터 구성 (big-endian 순서)
+                    protocol_data[0] = (uint8_t)((angle_protocol >> 8) & 0xFF); // 각도 상위 바이트
+                    protocol_data[1] = (uint8_t)(angle_protocol & 0xFF);         // 각도 하위 바이트
+                    protocol_data[2] = (uint8_t)angular_velocity;                // 각속도
+                    protocol_data[3] = (uint8_t)((torque_protocol >> 8) & 0xFF); // 토크 상위 바이트
+                    protocol_data[4] = (uint8_t)(torque_protocol & 0xFF);        // 토크 하위 바이트
+                    protocol_data[5] = handle_input;                             // 핸들 입력 여부
+                    *protocol_length = 6;
+                    
+                    if (DEBUG_CAN && is_debug_can_id(can_id)) {
+                        // CAN 메시지 정보 출력
+                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        for (int i = 0; i < can_length && i < 64; i++) {
+                            all_printf("%02X ", can_data[i]);
+                        }
+                        all_printf("\r\n");
+                        
+                        all_printf("CAN 0x%lX: Angle=%d deg, Torque=%d Nm, Handle=%d, Counter=%d (raw_angle=%d, bytes[16]=%02X, bytes[17]=%02X)\r\n", 
+                                 can_id, (int)angle_deg, (int)torque_nm, handle_input, mdps_msg.counter, raw_angle, can_data[16], can_data[17]);
                     }
                     
                     return true;
@@ -277,9 +355,16 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     protocol_data[0] = gear_protocol;
                     *protocol_length = 1;
                     
-                    if (DEBUG_CAN) {
-                        all_printf("CAN 0x45: Gear=%d (raw=%d), Counter=%d\n", 
-                                 gear_protocol, gear_msg.gear, gear_msg.counter);
+                    if (DEBUG_CAN && is_debug_can_id(can_id)) {
+                        // CAN 메시지 정보 출력
+                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        for (int i = 0; i < can_length && i < 64; i++) {
+                            all_printf("%02X ", can_data[i]);
+                        }
+                        all_printf("\r\n");
+                        
+                        all_printf("CAN 0x%lX: Gear=%d (raw=%d), Counter=%d\r\n", 
+                                 can_id, gear_protocol, gear_msg.gear, gear_msg.counter);
                     }
                     
                     return true;
@@ -309,9 +394,16 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     protocol_data[0] = turn_signal;
                     *protocol_length = 1;
                     
-                    if (DEBUG_CAN) {
-                        all_printf("CAN 0x413: Turn Signal=0x%02X (L=%d, R=%d)\n", 
-                                 turn_signal, blinkers_msg.left_stalk, blinkers_msg.right_stalk);
+                    if (DEBUG_CAN && is_debug_can_id(can_id)) {
+                        // CAN 메시지 정보 출력
+                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        for (int i = 0; i < can_length && i < 64; i++) {
+                            all_printf("%02X ", can_data[i]);
+                        }
+                        all_printf("\r\n");
+                        
+                        all_printf("CAN 0x%lX: Turn Signal=0x%02X (L=%d, R=%d)\r\n", 
+                                 can_id, turn_signal, blinkers_msg.left_stalk, blinkers_msg.right_stalk);
                     }
                     
                     return true;
@@ -334,9 +426,16 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     protocol_data[0] = door_status;
                     *protocol_length = 1;
                     
-                    if (DEBUG_CAN) {
-                        all_printf("CAN 0x411: Door Status=0x%02X (Driver=%d, Passenger=%d)\n", 
-                                 door_status, doors_msg.driver_door, doors_msg.passenger_door);
+                    if (DEBUG_CAN && is_debug_can_id(can_id)) {
+                        // CAN 메시지 정보 출력
+                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        for (int i = 0; i < can_length && i < 64; i++) {
+                            all_printf("%02X ", can_data[i]);
+                        }
+                        all_printf("\r\n");
+                        
+                        all_printf("CAN 0x%lX: Door Status=0x%02X (Driver=%d, Passenger=%d)\r\n", 
+                                 can_id, door_status, doors_msg.driver_door, doors_msg.passenger_door);
                     }
                     
                     return true;
@@ -357,9 +456,16 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     protocol_data[0] = seatbelt_status;
                     *protocol_length = 1;
                     
-                    if (DEBUG_CAN) {
-                        all_printf("CAN 0x411: Seatbelt Status=0x%02X (Driver=%d, Passenger=%d)\n", 
-                                 seatbelt_status, seatbelt_msg.driver_seatbelt, seatbelt_msg.passenger_seatbelt);
+                    if (DEBUG_CAN && is_debug_can_id(can_id)) {
+                        // CAN 메시지 정보 출력
+                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        for (int i = 0; i < can_length && i < 64; i++) {
+                            all_printf("%02X ", can_data[i]);
+                        }
+                        all_printf("\r\n");
+                        
+                        all_printf("CAN 0x%lX: Seatbelt Status=0x%02X (Driver=%d, Passenger=%d)\r\n", 
+                                 can_id, seatbelt_status, seatbelt_msg.driver_seatbelt, seatbelt_msg.passenger_seatbelt);
                     }
                     
                     return true;
@@ -368,21 +474,36 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
             break;
             
         case PROTOCOL_ID_RADAR:
-            // 레이더 상태 (SCC_CONTROL 메시지 파싱)
+            // 블라인드스팟 상태 (BLINDSPOTS_REAR_CORNERS 메시지 파싱)
             if (can_length >= 24) {
-                scc_control_msg_t scc_msg;
-                if (parse_scc_control_message(can_data, can_length, &scc_msg)) {
-                    // 레이더 상태를 비트로 조합
-                    uint8_t radar_status = 0;
-                    if (scc_msg.obj_valid) radar_status |= 0x01;  // 객체 감지됨
-                    if (scc_msg.acc_mode > 0) radar_status |= 0x02; // ACC 활성화
+                blindspots_rear_corners_msg_t blindspots_msg;
+                if (parse_blindspots_rear_corners_message(can_data, can_length, &blindspots_msg)) {
+                    // 블라인드스팟 상태를 비트로 조합
+                    uint8_t blindspots_status = 0;
+                    if (blindspots_msg.left_blocked) blindspots_status |= 0x01;  // 좌측 차단됨
+                    if (blindspots_msg.right_blocked) blindspots_status |= 0x02; // 우측 차단됨
+                    if (blindspots_msg.collision_avoidance_active) blindspots_status |= 0x04; // 충돌 회피 활성화
+                    if (blindspots_msg.fl_indicator_alt) blindspots_status |= 0x08; // 좌측 전방 표시등
+                    if (blindspots_msg.fr_indicator_alt) blindspots_status |= 0x10; // 우측 전방 표시등
                     
-                    protocol_data[0] = radar_status;
+                    protocol_data[0] = blindspots_status;
                     *protocol_length = 1;
                     
-                    if (DEBUG_CAN) {
-                        all_printf("CAN 0x1A0: Radar Status=0x%02X (Obj=%d, ACC=%d)\n", 
-                                 radar_status, scc_msg.obj_valid, scc_msg.acc_mode);
+                    if (DEBUG_CAN && is_debug_can_id(can_id)) {
+                        // CAN 메시지 정보 출력
+                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        for (int i = 0; i < can_length && i < 64; i++) {
+                            all_printf("%02X ", can_data[i]);
+                        }
+                        all_printf("\r\n");
+                        
+                        all_printf("CAN 0x%lX: Blindspots Status=0x%02X (L=%d, R=%d, CA=%d, FL=%d, FR=%d)\r\n", 
+                                 can_id, blindspots_status, 
+                                 blindspots_msg.left_blocked, 
+                                 blindspots_msg.right_blocked,
+                                 blindspots_msg.collision_avoidance_active,
+                                 blindspots_msg.fl_indicator_alt,
+                                 blindspots_msg.fr_indicator_alt);
                     }
                     
                     return true;
@@ -412,6 +533,11 @@ bool protocol_send_frame(protocol_data_id_t data_id, const uint8_t *data, uint8_
 {
     if (data == NULL || length == 0 || length > PROTOCOL_MAX_DATA) {
         return false;
+    }
+    
+    // DEBUG 모드일 때는 프로토콜 프레임 출력하지 않음
+    if (current_can_mode == CAN_DEBUG_MODE) {
+        return true;  // 성공으로 처리하지만 실제 전송은 하지 않음
     }
     
     protocol_frame_t frame;
@@ -460,7 +586,7 @@ bool protocol_send_frame(protocol_data_id_t data_id, const uint8_t *data, uint8_
         }
         all_printf("| Checksum: %02X | ETX: %02X\r\n", frame.checksum, frame.etx);
 #else
-        // 순수 바이너리 데이터만 16진수로 출력
+        // 순수 바이너리 데이터만 16진수로 출력 (한 줄로 정리)
         all_printf("%02X %02X %02X ", frame.stx, frame.data_id, frame.length);
         for (int i = 0; i < length; i++) {
             all_printf("%02X ", frame.data[i]);
@@ -552,6 +678,7 @@ void can_manager_process(void)
     
     // 에러 체크 (공통)
     can_error_check();
+    
     
     // TX 처리 (TX 모드에서만)
     if (is_tx_mode)
@@ -659,8 +786,10 @@ void can_tx_process(void)
 // CAN RX 초기화
 bool can_rx_init(void)
 {
-    DEBUG_PRINT("CAN TEST MODE: RX (Receiver)\r\n");
-    DEBUG_PRINT("Protocol output enabled via UART\r\n");
+    all_printf("=== CAN RELEASE MODE INITIALIZED ===\r\n");
+    all_printf("CAN TEST MODE: RX (Receiver)\r\n");
+    all_printf("Protocol output enabled via UART\r\n");
+    all_printf("==================================\r\n");
     
     rx_display_time = millis();
     // Initialize trackers
@@ -689,7 +818,8 @@ void can_rx_process(void)
             if (protocol_map_can_to_data_id(rx_msg.id, &data_id))
             {
                 // 0xA0 (WHEEL_SPEEDS) 메시지 특별 처리 (프로토콜 모드에서는 출력 안함)
-                if (rx_msg.id == CAN_ID_WHEEL_SPEEDS && rx_msg.length >= 16) {
+                //if (rx_msg.id == CAN_ID_WHEEL_SPEEDS && rx_msg.length >= 16) 
+                {
                     wheel_speeds_msg_t wheel_msg;
                     if (parse_wheel_speeds_message(rx_msg.data, rx_msg.length, &wheel_msg)) {
                         // 프로토콜 모드에서는 디버깅 출력 안함
@@ -699,7 +829,7 @@ void can_rx_process(void)
                         //          avg_speed, direction, wheel_msg.counter);
                         
                         // 상세 정보 출력 (선택적)
-                        if (DEBUG_CAN_DETAIL) {
+                        if (DEBUG_CAN && is_debug_can_id(rx_msg.id)) {
                             print_wheel_speeds_message(&wheel_msg);
                         }
                     }
@@ -757,6 +887,14 @@ void can_rx_process(void)
                 
                 // 주기 체크 및 프로토콜 전송
                 if (current_time - rx_trackers[i].last_protocol_time >= period_ms) {
+                    // DEBUG_CAN이 활성화된 경우 디버그 목록의 ID만 처리
+#if DEBUG_CAN
+                    if (!is_debug_can_id(rx_trackers[i].id)) {
+                        rx_trackers[i].last_protocol_time = current_time;
+                        continue;  // 디버그 목록에 없는 ID는 건너뛰기
+                    }
+#endif
+                    
                     // 프로토콜 데이터 변환
                     uint8_t protocol_data[PROTOCOL_MAX_DATA];
                     uint8_t protocol_length;
@@ -990,7 +1128,10 @@ void can_all_listen_process(void)
 // 필터링된 CAN ID 수신 초기화
 bool can_filter_listen_init(void)
 {
-    DEBUG_PRINT("CAN FILTER LISTEN MODE: 모든 CAN ID 수신 (매핑된 ID는 설정 주기, 나머지는 1000ms)\r\n");
+    all_printf("=== CAN FILTER LISTEN MODE INITIALIZED ===\r\n");
+    all_printf("모든 CAN ID 수신 (매핑된 ID는 설정 주기, 나머지는 1000ms)\r\n");
+    all_printf("매핑된 ID는 프로토콜 설명과 함께 STX/ETX 형식으로 출력됩니다.\r\n");
+    all_printf("==========================================\r\n");
     
     // 기존 RX 초기화와 동일하지만 프로토콜 변환 없이 출력
     rx_display_time = millis();
@@ -1065,7 +1206,20 @@ void can_filter_listen_process(void)
                 }
                 
                 if (current_time - rx_trackers[i].last_protocol_time >= period_ms) {
-                    can_output_raw_message(rx_trackers[i].id, &rx_trackers[i].msg);
+                    // 프로토콜 데이터 변환 및 설명과 함께 출력
+                    uint8_t protocol_data[PROTOCOL_MAX_DATA];
+                    uint8_t protocol_length;
+                    
+                    if (protocol_convert_can_data(rx_trackers[i].id, rx_trackers[i].msg.data, 
+                                                rx_trackers[i].msg.length, protocol_data, &protocol_length)) {
+                        // CAN 메시지 먼저 출력
+                        can_output_raw_message(rx_trackers[i].id, &rx_trackers[i].msg);
+                        // 그 다음 프로토콜 메시지 출력
+                        can_output_protocol_message(rx_trackers[i].id, &rx_trackers[i].msg, data_id, protocol_data, protocol_length);
+                    } else {
+                        // 변환 실패 시 원본 메시지 출력
+                        can_output_raw_message(rx_trackers[i].id, &rx_trackers[i].msg);
+                    }
                     rx_trackers[i].last_protocol_time = current_time;
                 }
             } else {
@@ -1082,8 +1236,19 @@ void can_filter_listen_process(void)
 // CAN 메시지를 UART로 출력하는 함수
 void can_output_raw_message(uint32_t can_id, const can_msg_t *msg)
 {
+#if DEBUG_CAN
+    // DEBUG_CAN이 1일 때는 특정 CAN ID만 출력
+    if (!is_debug_can_id(can_id)) {
+        all_printf("FILTERED: 0x%lX (not in debug list)\r\n", can_id);
+        return;  // 디버그 목록에 없는 ID는 출력하지 않음
+    }
+    all_printf("ALLOWED: 0x%lX (in debug list)\r\n", can_id);
+#endif
+
+#if DEBUG_CAN
+    // DEBUG_CAN이 1일 때만 출력
     // CAN ID와 Data를 분리해서 표시
-    all_printf("CAN ID: 0x%lX | Data: ", can_id);
+    all_printf("[CAN] ID: 0x%lX | Data: ", can_id);
     
     // Raw DLC 값을 직접 사용 (canGetLen 함수의 버그 우회)
     uint8_t data_length = msg->length;
@@ -1093,6 +1258,40 @@ void can_output_raw_message(uint32_t can_id, const can_msg_t *msg)
         all_printf("%02X ", msg->data[i]);
     }
     all_printf("| DLC: %d\r\n", data_length);
+#endif
+}
+
+// 프로토콜 메시지를 설명과 함께 UART로 출력하는 함수
+void can_output_protocol_message(uint32_t can_id, const can_msg_t *msg, protocol_data_id_t data_id, 
+                                const uint8_t *protocol_data, uint8_t protocol_length)
+{
+#if DEBUG_CAN
+    // DEBUG_CAN이 1일 때는 특정 CAN ID만 출력
+    if (!is_debug_can_id(can_id)) {
+        return;  // 디버그 목록에 없는 ID는 출력하지 않음
+    }
+#endif
+
+#if DEBUG_CAN
+    // DEBUG_CAN이 1일 때만 출력
+    // 프로토콜 설명 가져오기
+    const char* description = "Unknown";
+    if (data_id < sizeof(protocol_descriptions) / sizeof(protocol_descriptions[0])) {
+        description = protocol_descriptions[data_id];
+    }
+    
+    // 프로토콜 프레임 구성
+    all_printf("[PROTOCOL] ID: 0x%lX | %s | ", can_id, description);
+    all_printf("STX: 02 | Data ID: %02X | Length: %02X | Data: ", (uint8_t)data_id, protocol_length);
+    
+    for (int i = 0; i < protocol_length; i++) {
+        all_printf("%02X ", protocol_data[i]);
+    }
+    
+    // 체크섬 계산 및 출력
+    uint8_t checksum = protocol_calculate_checksum((uint8_t)data_id, protocol_length, protocol_data);
+    all_printf("| Checksum: %02X | ETX: 03\r\n", checksum);
+#endif
 }
 
 // 디버깅 모드 초기화
@@ -1176,7 +1375,7 @@ void can_print_mode_info(void)
         case CAN_FILTER_LISTEN:
             all_printf("Mode 1: FILTER LISTEN\r\n");
             all_printf("기능: 모든 CAN ID 수신\r\n");
-            all_printf("출력: CAN ID와 Data를 분리해서 표시\r\n");
+            all_printf("출력: 매핑된 ID는 프로토콜 설명과 STX/ETX 형식, 나머지는 원본 형식\r\n");
             all_printf("주기: 매핑된 ID는 설정 주기, 나머지는 1000ms\r\n");
             break;
         case CAN_RELEASE:

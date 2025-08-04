@@ -10,8 +10,61 @@
     (((data)[(start) / 8] >> ((start) % 8)) & ((1 << (length)) - 1))
 
 #define GET_BITS_16(data, start, length) \
-    ((((uint16_t)(data)[(start) / 8] << 8) | (data)[(start) / 8 + 1]) >> ((start) % 8)) & ((1 << (length)) - 1)
+    (((uint16_t)(data)[(start) / 8 + 1] << 8) | (data)[(start) / 8]) & ((1 << (length)) - 1)
 
+// 10비트 이상의 값을 읽기 위한 매크로 (리틀 엔디안 고려)
+#define GET_BITS_10(data, start, length) \
+    (((uint16_t)(data)[(start) / 8 + 1] << 8) | (data)[(start) / 8]) & ((1 << (length)) - 1)
+
+// 바이트 경계를 넘어가는 비트 추출을 위한 매크로
+#define GET_BITS_CROSS_BYTES(data, start, length) \
+    ({ \
+        uint32_t result = 0; \
+        int bit_pos = start; \
+        int bits_remaining = length; \
+        int byte_offset = bit_pos / 8; \
+        int bit_offset = bit_pos % 8; \
+        \
+        while (bits_remaining > 0) { \
+            int bits_to_read = (bits_remaining < (8 - bit_offset)) ? bits_remaining : (8 - bit_offset); \
+            uint8_t mask = ((1 << bits_to_read) - 1) << bit_offset; \
+            uint8_t value = (data[byte_offset] & mask) >> bit_offset; \
+            result |= (uint32_t)value << (length - bits_remaining); \
+            \
+            bits_remaining -= bits_to_read; \
+            if (bits_remaining > 0) { \
+                byte_offset++; \
+                bit_offset = 0; \
+            } \
+        } \
+        result; \
+    })
+
+// 리틀 엔디안을 고려한 10비트 읽기 함수
+static inline uint16_t get_bits_10_le(const uint8_t *data, int start_bit) {
+    int byte_offset = start_bit / 8;
+    int bit_offset = start_bit % 8;
+    
+    // 첫 번째 바이트에서 읽을 비트 수
+    int bits_from_first = (bit_offset + 10 <= 8) ? 10 : (8 - bit_offset);
+    int bits_from_second = 10 - bits_from_first;
+    
+    uint16_t result = 0;
+    
+    // 첫 번째 바이트에서 읽기
+    if (bits_from_first > 0) {
+        uint8_t mask = ((1 << bits_from_first) - 1) << bit_offset;
+        result = (data[byte_offset] & mask) >> bit_offset;
+    }
+    
+    // 두 번째 바이트에서 읽기 (필요한 경우)
+    if (bits_from_second > 0) {
+        uint8_t mask = (1 << bits_from_second) - 1;
+        result |= (uint16_t)(data[byte_offset + 1] & mask) << bits_from_first;
+    }
+    
+    return result;
+}
 // 비트 설정 매크로
 #define SET_BITS(data, start, length, value) \
     do { \
@@ -198,8 +251,17 @@ bool parse_accelerator_message(const uint8_t *data, uint8_t length, accelerator_
     
     msg->checksum = GET_BITS_16(data, 0, 16);
     msg->counter = GET_BITS(data, 16, 8);
-    msg->accelerator_pedal = GET_BITS(data, 40, 8);
+    msg->accelerator_pedal = get_bits_10_le(data, 88);
     msg->gear = GET_BITS(data, 192, 3);
+    
+    // 디버그: 모든 바이트 출력
+    printf("ACCELERATOR DEBUG - Bytes: ");
+    for (int i = 0; i < length && i < 32; i++) {
+        printf("%02X ", data[i]);
+    }
+    printf("\n");
+    printf("ACCELERATOR DEBUG - Bit 88-97 (bytes 11-12): %02X %02X\n", data[11], data[12]);
+    printf("ACCELERATOR DEBUG - Raw accelerator_pedal: %d (0x%04X)\n", msg->accelerator_pedal, msg->accelerator_pedal);
     
     return true;
 }
@@ -209,7 +271,7 @@ float calculate_accelerator_pedal_percent(const accelerator_msg_t *msg)
     if (msg == NULL) {
         return 0.0f;
     }
-    return (float)msg->accelerator_pedal * 100.0f / 255.0f;
+    return (float)msg->accelerator_pedal * (100.0f / 1022.0f);
 }
 
 void print_accelerator_message(const accelerator_msg_t *msg)
@@ -233,8 +295,18 @@ bool parse_brake_message(const uint8_t *data, uint8_t length, brake_msg_t *msg)
     
     msg->checksum = GET_BITS_16(data, 0, 16);
     msg->counter = GET_BITS(data, 16, 8);
-    msg->brake_position = GET_BITS_16(data, 40, 16);
+    msg->brake_position = get_bits_10_le(data, 128);
     msg->brake_pressed = GET_BITS(data, 57, 1);
+    
+    // 디버그: 모든 바이트 출력
+    printf("BRAKE DEBUG - Bytes: ");
+    for (int i = 0; i < length && i < 32; i++) {
+        printf("%02X ", data[i]);
+    }
+    printf("\n");
+    printf("BRAKE DEBUG - Bit 40-55 (bytes 5-6): %02X %02X\n", data[5], data[6]);
+    printf("BRAKE DEBUG - Bit 128-143 (bytes 16-17): %02X %02X\n", data[16], data[17]);
+    printf("BRAKE DEBUG - Raw brake_position: %d\n", msg->brake_position);
     
     return true;
 }
@@ -363,12 +435,12 @@ bool parse_gear_message(const uint8_t *data, uint8_t length, gear_msg_t *msg)
         return false;
     }
     
-    // DBC: BO_ 69 GEAR: 24 XXX
+    // DBC: BO_ 64 GEAR: 24 XXX
     msg->checksum = GET_BITS_16(data, 0, 16);
     msg->counter = GET_BITS(data, 16, 8);
     
-    // SG_ GEAR : 44|3@1+ (1,0) [0|7] "" XXX
-    msg->gear = GET_BITS(data, 44, 3);
+    // SG_ GEAR : 32|3@1+ (1,0) [0|7] "" XXX
+    msg->gear = GET_BITS(data, 32, 3);
     
     return true;
 }
@@ -504,83 +576,68 @@ void print_lkas_alt_message(const lkas_alt_msg_t *msg)
     printf("=======================\n");
 }
 
-// ===== SCC_CONTROL 메시지 구현 =====
-bool parse_scc_control_message(const uint8_t *data, uint8_t length, scc_control_msg_t *msg)
+// ===== BLINDSPOTS_REAR_CORNERS 메시지 구현 =====
+bool parse_blindspots_rear_corners_message(const uint8_t *data, uint8_t length, blindspots_rear_corners_msg_t *msg)
 {
     if (data == NULL || msg == NULL || length < 24) {
         return false;
     }
     
-    // DBC: BO_ 416 SCC_CONTROL: 32 ADRV
+    // DBC: BO_ 442 BLINDSPOTS_REAR_CORNERS: 24 XXX
     msg->checksum = GET_BITS_16(data, 0, 16);
     msg->counter = GET_BITS(data, 16, 8);
     
-    // SG_ ACC_ObjDist : 24|11@1+ (0.1,0) [0|204.7] "m" XXX
-    msg->acc_obj_dist = GET_BITS_16(data, 24, 11);
+    // SG_ LEFT_BLOCKED : 24|1@0+ (1,0) [0|1] "" XXX
+    msg->left_blocked = GET_BITS(data, 24, 1);
     
-    // SG_ ACC_ObjRelSpd : 35|9@1+ (0.1,-16.4) [-16.4|34.7] "m/s" XXX
-    int16_t rel_spd_raw = (int16_t)GET_BITS_16(data, 35, 9);
-    msg->acc_obj_rel_spd = rel_spd_raw;
+    // SG_ LEFT_MB : 30|1@0+ (1,0) [0|3] "" XXX
+    msg->left_mb = GET_BITS(data, 30, 1);
     
-    // SG_ ObjValid : 46|1@0+ (1,0) [0|3] "" XXX
-    msg->obj_valid = GET_BITS(data, 46, 1);
+    // SG_ MORE_LEFT_PROB : 32|1@1+ (1,0) [0|3] "" XXX
+    msg->more_left_prob = GET_BITS(data, 32, 1);
     
-    // SG_ MainMode_ACC : 66|1@1+ (1,0) [0|1] "" XXX
-    msg->main_mode_acc = GET_BITS(data, 66, 1);
+    // SG_ FL_INDICATOR : 46|6@0+ (1,0) [0|1] "" XXX
+    msg->fl_indicator = GET_BITS(data, 46, 6);
     
-    // SG_ ACCMode : 68|3@1+ (1,0) [0|7] "" XXX
-    msg->acc_mode = GET_BITS(data, 68, 3);
+    // SG_ FR_INDICATOR : 54|6@0+ (1,0) [0|63] "" XXX
+    msg->fr_indicator = GET_BITS(data, 54, 6);
     
-    // SG_ CRUISE_STANDSTILL : 76|1@1+ (1,0) [0|1] "" XXX
-    msg->cruise_standstill = GET_BITS(data, 76, 1);
+    // SG_ RIGHT_BLOCKED : 64|1@0+ (1,0) [0|1] "" XXX
+    msg->right_blocked = GET_BITS(data, 64, 1);
     
-    // SG_ DISTANCE_SETTING : 88|3@1+ (1,0) [0|3] "" XXX
-    msg->distance_setting = GET_BITS(data, 88, 3);
+    // SG_ COLLISION_AVOIDANCE_ACTIVE : 68|1@0+ (1,0) [0|1] "" XXX
+    msg->collision_avoidance_active = GET_BITS(data, 68, 1);
     
-    // SG_ VSetDis : 103|8@0+ (1,0) [0|255] "km/h or mph" XXX
-    msg->vset_dis = GET_BITS(data, 103, 8);
+    // SG_ NEW_SIGNAL_2 : 96|1@0+ (1,0) [0|1] "" XXX
+    msg->new_signal_2 = GET_BITS(data, 96, 1);
     
-    // SG_ aReqValue : 128|11@1+ (0.01,-10.23) [-10.23|10.24] "m/s^2" XXX
-    int16_t a_req_raw = (int16_t)GET_BITS_16(data, 128, 11);
-    msg->a_req_value = a_req_raw;
+    // SG_ FL_INDICATOR_ALT : 138|1@0+ (1,0) [0|1] "" XXX
+    msg->fl_indicator_alt = GET_BITS(data, 138, 1);
     
-    // SG_ aReqRaw : 140|11@1+ (0.01,-10.23) [-10.23|10.24] "m/s^2" XXX
-    int16_t a_req_raw_val = (int16_t)GET_BITS_16(data, 140, 11);
-    msg->a_req_raw = a_req_raw_val;
-    
-    // SG_ OBJ_STATUS : 176|3@1+ (1,0) [0|7] "" XXX
-    msg->obj_status = GET_BITS(data, 176, 3);
-    
-    // SG_ StopReq : 184|1@0+ (1,0) [0|1] "" XXX
-    msg->stop_req = GET_BITS(data, 184, 1);
-    
-    // SG_ NEW_SIGNAL_15 : 192|11@1+ (0.1,0) [0|204.7] "m" XXX
-    msg->new_signal_15 = GET_BITS_16(data, 192, 11);
+    // SG_ FR_INDICATOR_ALT : 141|1@0+ (1,0) [0|1] "" XXX
+    msg->fr_indicator_alt = GET_BITS(data, 141, 1);
     
     return true;
 }
 
-void print_scc_control_message(const scc_control_msg_t *msg)
+void print_blindspots_rear_corners_message(const blindspots_rear_corners_msg_t *msg)
 {
     if (msg == NULL) return;
     
-    printf("=== SCC_CONTROL Message ===\n");
+    printf("=== BLINDSPOTS_REAR_CORNERS Message ===\n");
     printf("Checksum: 0x%04X\n", msg->checksum);
     printf("Counter: %d\n", msg->counter);
-    printf("ACC Obj Distance: %.1f m (raw: %d)\n", (float)msg->acc_obj_dist * 0.1f, msg->acc_obj_dist);
-    printf("ACC Obj Rel Speed: %.1f m/s (raw: %d)\n", (float)msg->acc_obj_rel_spd * 0.1f - 16.4f, msg->acc_obj_rel_spd);
-    printf("Obj Valid: %d\n", msg->obj_valid);
-    printf("Main Mode ACC: %d\n", msg->main_mode_acc);
-    printf("ACC Mode: %d\n", msg->acc_mode);
-    printf("Cruise Standstill: %d\n", msg->cruise_standstill);
-    printf("Distance Setting: %d\n", msg->distance_setting);
-    printf("VSet Dis: %d km/h\n", msg->vset_dis);
-    printf("A Req Value: %.2f m/s² (raw: %d)\n", (float)msg->a_req_value * 0.01f - 10.23f, msg->a_req_value);
-    printf("A Req Raw: %.2f m/s² (raw: %d)\n", (float)msg->a_req_raw * 0.01f - 10.23f, msg->a_req_raw);
-    printf("Obj Status: %d\n", msg->obj_status);
-    printf("Stop Req: %d\n", msg->stop_req);
-    printf("New Signal 15: %.1f m (raw: %d)\n", (float)msg->new_signal_15 * 0.1f, msg->new_signal_15);
-    printf("===========================\n");
+    printf("Left Blocked: %s\n", msg->left_blocked ? "Yes" : "No");
+    printf("Left MB: %s\n", msg->left_mb ? "Yes" : "No");
+    printf("More Left Prob: %s\n", msg->more_left_prob ? "Yes" : "No");
+    printf("FL Indicator: %d\n", msg->fl_indicator);
+    printf("FR Indicator: %d\n", msg->fr_indicator);
+    printf("Right Blocked: %s\n", msg->right_blocked ? "Yes" : "No");
+    printf("Collision Avoidance Active: %s\n", msg->collision_avoidance_active ? "Yes" : "No");
+    printf("New Signal 2: %s\n", msg->new_signal_2 ? "Yes" : "No");
+    printf("FL Indicator Alt: %s\n", msg->fl_indicator_alt ? "Yes" : "No");
+    printf("FR Indicator Alt: %s\n", msg->fr_indicator_alt ? "Yes" : "No");
+    printf("=====================================\n");
 }
 
 // ===== CRUISE_BUTTONS 메시지 구현 =====
@@ -703,6 +760,7 @@ bool create_scc_control_message(const scc_control_msg_t *msg, uint8_t *data, uin
 bool create_cruise_buttons_message(const cruise_buttons_msg_t *msg, uint8_t *data, uint8_t *length) { return false; }
 bool create_doors_seatbelts_message(const doors_seatbelts_msg_t *msg, uint8_t *data, uint8_t *length) { return false; }
 bool create_blinkers_message(const blinkers_msg_t *msg, uint8_t *data, uint8_t *length) { return false; }
+bool create_blindspots_rear_corners_message(const blindspots_rear_corners_msg_t *msg, uint8_t *data, uint8_t *length) { return false; }
 
 // 체크섬 계산 함수들 (기본 구현)
 uint16_t calculate_accelerator_checksum(const uint8_t *data, uint8_t length) { return 0; }
@@ -716,6 +774,7 @@ uint16_t calculate_scc_control_checksum(const uint8_t *data, uint8_t length) { r
 uint16_t calculate_cruise_buttons_checksum(const uint8_t *data, uint8_t length) { return 0; }
 uint16_t calculate_doors_seatbelts_checksum(const uint8_t *data, uint8_t length) { return 0; }
 uint16_t calculate_blinkers_checksum(const uint8_t *data, uint8_t length) { return 0; }
+uint16_t calculate_blindspots_rear_corners_checksum(const uint8_t *data, uint8_t length) { return 0; }
 
 // 메시지 유효성 검사 함수들 (기본 구현)
 bool validate_accelerator_message(const uint8_t *data, uint8_t length) { return false; }
@@ -729,6 +788,7 @@ bool validate_scc_control_message(const uint8_t *data, uint8_t length) { return 
 bool validate_cruise_buttons_message(const uint8_t *data, uint8_t length) { return false; }
 bool validate_doors_seatbelts_message(const uint8_t *data, uint8_t length) { return false; }
 bool validate_blinkers_message(const uint8_t *data, uint8_t length) { return false; }
+bool validate_blindspots_rear_corners_message(const uint8_t *data, uint8_t length) { return false; }
 
 
 // 테스트 함수들
