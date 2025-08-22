@@ -86,9 +86,7 @@ extern can_mode_t current_can_mode;
 bool can_manager_init(bool tx_mode);
 void can_manager_process(void);
 
-// CAN TX 관련 함수들
-bool can_tx_init(void);
-void can_tx_process(void);
+
 
 // CAN RX 관련 함수들  
 bool can_rx_init(void);

@@ -165,7 +165,8 @@ void apMain(void)
     {
       if (button_current)
       {
-        all_printf("DEBUG: BOOT button PRESSED, is_can_mode=%s\r\n", is_can_mode ? "true" : "false");
+        all_printf("DEBUG: BOOT button PRESSED, is_can_mode=%s\r\n", is_can_mode ? "true" : "f"
+        		"alse");
         uartPrintf(HW_UART_CH_DEBUG, "DEBUG: BOOT button PRESSED, is_can_mode=%s\r\n", is_can_mode ? "true" : "false");
         uartPrintf(HW_UART_CH_EXT, "DEBUG: BOOT button PRESSED, is_can_mode=%s\r\n", is_can_mode ? "true" : "false");
       }

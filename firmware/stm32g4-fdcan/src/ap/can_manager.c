@@ -1,5 +1,6 @@
 #include "can_manager.h"
 #include "can_db.h"
+#include "can_tx.h"
 
 // DEBUG 출력 매크로
 #if DEBUG_CAN_PROTOCOL
@@ -14,14 +15,14 @@
 // DEBUG_CAN이 1일 때 출력할 CAN ID 목록
 static const uint32_t debug_can_ids[] = {
     //0xEA,   // MDPS (Steering Angle)
-    //0xA0,   // WHEEL_SPEEDS (Vehicle Speed)
+    0xA0,   // WHEEL_SPEEDS (Vehicle Speed)
     //0x60,   // BPS
     //0x100,  // ACCELERATOR_BRAKE_ALT (BPS)
     //0x40,   // GEAR_ALT_2 (Gear)
     //0x125,  // STEERING_SENSORS (EPS Error)
     //0x413,  // BLINKERS (Turn Signal)
     //0x411,  // DOORS_SEATBELTS (Door/Seatbelt)
-    0x1BA,  // BLINDSPOTS_REAR_CORNERS (Radar)
+    //0x1BA,  // BLINDSPOTS_REAR_CORNERS (Radar)
 };
 
 #define DEBUG_CAN_IDS_COUNT (sizeof(debug_can_ids) / sizeof(debug_can_ids[0]))
@@ -33,7 +34,7 @@ static bool is_debug_can_id(uint32_t can_id) {
             return true;
         }
     }
-    return false;
+    return true;
 }
 
 // CAN 모드 설정
@@ -60,64 +61,27 @@ static uint8_t scan_active_count = 0;
 static uint32_t scan_output_period = 2000;  // 출력 주기: 1000ms
 static uint32_t scan_timeout_period = 1000;  // 타임아웃 주기: 1000ms
 
-// 샘플 CAN FD 메시지 정의
-typedef struct {
-    uint32_t id;
-    uint8_t dlc;
-    uint8_t data[64];
-} sample_can_msg_t;
 
-// 실제 CAN FD 메시지 샘플들
-static const sample_can_msg_t sample_messages[] = {
-    {
-        .id = 0xEA,
-        .dlc = CAN_DLC_24,
-        .data = {0x7E, 0x41, 0xBB, 0x00, 0x01, 0x41, 0x00, 0x00, 
-                 0x01, 0x08, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 
-                 0xAC, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-    },
-    {
-        .id = 0x125,
-        .dlc = CAN_DLC_16,
-        .data = {0x3E, 0x9F, 0xB3, 0xBB, 0xFF, 0x00, 0x07, 0x00, 
-                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-    },
-    {
-        .id = 0x60,
-        .dlc = CAN_DLC_32,
-        .data = {0x2B, 0x59, 0xE1, 0x00, 0x00, 0x00, 0x00, 0x00, 
-                 0x02, 0x02, 0x00, 0x02, 0x00, 0xFF, 0x00, 0xFF, 
-                 0xAD, 0x00, 0x15, 0x00, 0x00, 0x08, 0x03, 0x01, 
-                 0x40, 0x00, 0x00, 0x04, 0xFF, 0xFA, 0x00, 0x00}
-    },
-    {
-        .id = 0x100,
-        .dlc = CAN_DLC_32,
-        .data = {0xED, 0xA6, 0xF6, 0x00, 0x11, 0xAD, 0x7E, 0x6C, 
-                 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x57, 
-                 0x23, 0x00, 0x48, 0x00, 0xE5, 0x00, 0x00, 0x00, 
-                 0xFE, 0x0F, 0x00, 0x90, 0x93, 0x00, 0x00, 0x00}
-    }
-};
-
-#define SAMPLE_MSG_COUNT (sizeof(sample_messages) / sizeof(sample_messages[0]))
 
 // 필터링할 CAN ID 목록
 #define FILTERED_ID_COUNT 10
 
+#define PERIOD_100MS 100
+#define PERIOD_1000MS 1000
+
 // CAN ID to Protocol ID 매핑 테이블
 // 필터링된 CAN ID들을 순서대로 프로토콜 Data ID로 매핑
 static const can_to_protocol_map_t can_protocol_map[] = {
-    {0xA0,  PROTOCOL_ID_VEHICLE_SPEED,   100},  // Vehicle Speed
-    {0x60,  PROTOCOL_ID_BPS,            100},  // APS
-    {0x100, PROTOCOL_ID_APS,            100},  // BPS
-    {0xEA,  PROTOCOL_ID_STEERING_ANGLE, 100},  // Steering Angle
-    {0x125, PROTOCOL_ID_EPS_ERR,        100},  // EPS Error
-    {0x40, PROTOCOL_ID_GEAR,    100},  // Gear Status
-    {0x413, PROTOCOL_ID_TURN_SIGNAL,    100},  // Turn Signal
-    {0x411, PROTOCOL_ID_DOOR_OPEN,     1000},  // Door Open
-    {0x411, PROTOCOL_ID_SEAT_BELT,      1000},  // Seat Belt
-    {0x1BA, PROTOCOL_ID_RADAR,          100},  // Radar
+    {0xA0,  PROTOCOL_ID_VEHICLE_SPEED,   PERIOD_100MS},  // Vehicle Speed
+    {0x60,  PROTOCOL_ID_BPS,            PERIOD_100MS},  // APS
+    {0x100, PROTOCOL_ID_APS,            PERIOD_100MS},  // BPS
+    {0xEA,  PROTOCOL_ID_STEERING_ANGLE, PERIOD_100MS},  // Steering Angle
+    {0x125, PROTOCOL_ID_EPS_ERR,        PERIOD_100MS},  // EPS Error
+    {0x40, PROTOCOL_ID_GEAR,    PERIOD_100MS},  // Gear Status
+    {0x413, PROTOCOL_ID_TURN_SIGNAL,    PERIOD_100MS},  // Turn Signal
+    {0x411, PROTOCOL_ID_DOOR_OPEN,     PERIOD_1000MS},  // Door Open
+    {0x411, PROTOCOL_ID_SEAT_BELT,      PERIOD_1000MS},  // Seat Belt
+    {0x1BA, PROTOCOL_ID_RADAR,          PERIOD_100MS},  // Radar
 };
 
 #define CAN_PROTOCOL_MAP_SIZE (sizeof(can_protocol_map) / sizeof(can_protocol_map[0]))
@@ -137,12 +101,9 @@ static const char* protocol_descriptions[] = {
 };
 
 // 정적 변수들
-static uint32_t tx_time = 0;
-static uint32_t tx_counter = 0;
 static uint32_t error_check_time = 0;
 static uint32_t last_tx_err_count = 0;
 static uint32_t last_rx_err_count = 0;
-static uint32_t tx_fail_count = 0;
 static bool can_initialized = false;
 static bool is_tx_mode = false;  // TX 모드 여부를 저장
 static bool protocol_initialized = false;
@@ -209,7 +170,7 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     // 디버깅 정보 출력
                     if (DEBUG_CAN && is_debug_can_id(can_id)) {
                         // CAN 메시지 정보 출력
-                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        all_printf("\nCAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
                         for (int i = 0; i < can_length && i < 64; i++) {
                             all_printf("%02X ", can_data[i]);
                         }
@@ -243,7 +204,7 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     
                     if (DEBUG_CAN && is_debug_can_id(can_id)) {
                         // CAN 메시지 정보 출력
-                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        all_printf("\nCAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
                         for (int i = 0; i < can_length && i < 64; i++) {
                             all_printf("%02X ", can_data[i]);
                         }
@@ -271,7 +232,7 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     
                     if (DEBUG_CAN && is_debug_can_id(can_id)) {
                         // CAN 메시지 정보 출력
-                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        all_printf("\nCAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
                         for (int i = 0; i < can_length && i < 64; i++) {
                             all_printf("%02X ", can_data[i]);
                         }
@@ -321,7 +282,7 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     
                     if (DEBUG_CAN && is_debug_can_id(can_id)) {
                         // CAN 메시지 정보 출력
-                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        all_printf("\nCAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
                         for (int i = 0; i < can_length && i < 64; i++) {
                             all_printf("%02X ", can_data[i]);
                         }
@@ -357,7 +318,7 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     
                     if (DEBUG_CAN && is_debug_can_id(can_id)) {
                         // CAN 메시지 정보 출력
-                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        all_printf("\nCAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
                         for (int i = 0; i < can_length && i < 64; i++) {
                             all_printf("%02X ", can_data[i]);
                         }
@@ -396,7 +357,7 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     
                     if (DEBUG_CAN && is_debug_can_id(can_id)) {
                         // CAN 메시지 정보 출력
-                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        all_printf("\nCAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
                         for (int i = 0; i < can_length && i < 64; i++) {
                             all_printf("%02X ", can_data[i]);
                         }
@@ -428,7 +389,7 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     
                     if (DEBUG_CAN && is_debug_can_id(can_id)) {
                         // CAN 메시지 정보 출력
-                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        all_printf("\nCAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
                         for (int i = 0; i < can_length && i < 64; i++) {
                             all_printf("%02X ", can_data[i]);
                         }
@@ -458,7 +419,7 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     
                     if (DEBUG_CAN && is_debug_can_id(can_id)) {
                         // CAN 메시지 정보 출력
-                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        all_printf("\nCAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
                         for (int i = 0; i < can_length && i < 64; i++) {
                             all_printf("%02X ", can_data[i]);
                         }
@@ -491,7 +452,7 @@ bool protocol_convert_can_data(uint32_t can_id, const uint8_t *can_data, uint8_t
                     
                     if (DEBUG_CAN && is_debug_can_id(can_id)) {
                         // CAN 메시지 정보 출력
-                        all_printf("CAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
+                        all_printf("\nCAN MSG: ID=0x%lX, DLC=%d, Data: ", can_id, can_length);
                         for (int i = 0; i < can_length && i < 64; i++) {
                             all_printf("%02X ", can_data[i]);
                         }
@@ -587,11 +548,11 @@ bool protocol_send_frame(protocol_data_id_t data_id, const uint8_t *data, uint8_
         all_printf("| Checksum: %02X | ETX: %02X\r\n", frame.checksum, frame.etx);
 #else
         // 순수 바이너리 데이터만 16진수로 출력 (한 줄로 정리)
-        all_printf("%02X %02X %02X ", frame.stx, frame.data_id, frame.length);
+        uart_printf("%02X %02X %02X ", frame.stx, frame.data_id, frame.length);
         for (int i = 0; i < length; i++) {
-            all_printf("%02X ", frame.data[i]);
+            uart_printf("%02X ", frame.data[i]);
         }
-        all_printf("%02X %02X\r\n", frame.checksum, frame.etx);
+        uart_printf("%02X %02X\r\n", frame.checksum, frame.etx);
 #endif
         return true;
     } else {
@@ -712,76 +673,7 @@ void can_manager_process(void)
     }
 }
 
-// CAN TX 초기화
-bool can_tx_init(void)
-{
-    DEBUG_PRINT("CAN TEST MODE: TX (Transmitter)\r\n");
-    DEBUG_PRINT("Will send %d sample CAN FD messages every 10ms\r\n", SAMPLE_MSG_COUNT);
-    
-    tx_time = millis();
-    tx_counter = 0;
-    tx_fail_count = 0;
-    
-    return true;
-}
 
-// CAN TX 처리
-void can_tx_process(void)
-{
-    if (millis() - tx_time >= 10)  // 10ms마다 송신
-    {
-        tx_time = millis();
-        
-        // 샘플 메시지 중 하나를 순차적으로 선택
-        uint32_t msg_index = tx_counter % SAMPLE_MSG_COUNT;
-        const sample_can_msg_t *sample = &sample_messages[msg_index];
-        
-        can_msg_t tx_msg;
-        canMsgInit(&tx_msg, CAN_FD_BRS, CAN_STD, sample->dlc);
-        tx_msg.id = sample->id;
-        
-        // 샘플 데이터 복사 (카운터 추가로 변화 표시)
-        uint8_t data_length = canGetLen(sample->dlc);
-        for (int i = 0; i < data_length; i++)
-        {
-            if (i < 4)  // 처음 4바이트에 변화하는 데이터 추가
-            {
-                tx_msg.data[i] = sample->data[i] ^ (tx_counter & 0xFF);
-            }
-            else
-            {
-                tx_msg.data[i] = sample->data[i];
-            }
-        }
-        
-        if (canMsgWrite(_DEF_CAN1, &tx_msg, 10))
-        {
-            DEBUG_PRINT("CAN TX: ID=0x%03lX, DLC=%d, Data=", tx_msg.id, data_length);
-            for (int i = 0; i < data_length; i++)
-            {
-                DEBUG_PRINT("%02X ", tx_msg.data[i]);
-            }
-            DEBUG_PRINT("(Seq=%lu)\r\n", tx_counter);
-            ledToggle(HW_LED_CH_TX);
-            tx_fail_count = 0; // 송신 성공 시 실패 카운터 리셋
-        }
-        else
-        {
-            tx_fail_count++;
-            DEBUG_PRINT("CAN TX Failed! ID=0x%03lX (Fail count: %lu)\r\n", sample->id, tx_fail_count);
-            
-            // 연속 실패 시 복구 시도
-            if (tx_fail_count >= 3)
-            {
-                DEBUG_PRINT("Multiple TX failures detected. Attempting CAN recovery...\r\n");
-                can_error_recovery();
-                tx_fail_count = 0;
-            }
-        }
-        
-        tx_counter++;
-    }
-}
 
 // CAN RX 초기화
 bool can_rx_init(void)
@@ -1129,7 +1021,7 @@ void can_all_listen_process(void)
 bool can_filter_listen_init(void)
 {
     all_printf("=== CAN FILTER LISTEN MODE INITIALIZED ===\r\n");
-    all_printf("모든 CAN ID 수신 (매핑된 ID는 설정 주기, 나머지는 1000ms)\r\n");
+    all_printf("모든 CAN ID 수신 (매핑된 ID의 설정 주기)\r\n");
     all_printf("매핑된 ID는 프로토콜 설명과 함께 STX/ETX 형식으로 출력됩니다.\r\n");
     all_printf("==========================================\r\n");
     
@@ -1214,21 +1106,25 @@ void can_filter_listen_process(void)
                                                 rx_trackers[i].msg.length, protocol_data, &protocol_length)) {
                         // CAN 메시지 먼저 출력
                         can_output_raw_message(rx_trackers[i].id, &rx_trackers[i].msg);
-                        // 그 다음 프로토콜 메시지 출력
-                        can_output_protocol_message(rx_trackers[i].id, &rx_trackers[i].msg, data_id, protocol_data, protocol_length);
+                        
+                        if (DEBUG_CAN)
+                        {
+                            // 그 다음 프로토콜 메시지 출력
+                            can_output_protocol_message(rx_trackers[i].id, &rx_trackers[i].msg, data_id, protocol_data, protocol_length);
+                        }
                     } else {
                         // 변환 실패 시 원본 메시지 출력
                         can_output_raw_message(rx_trackers[i].id, &rx_trackers[i].msg);
                     }
                     rx_trackers[i].last_protocol_time = current_time;
                 }
-            } else {
+            } /* else {
                 // 매핑되지 않은 ID: 기본 주기(1000ms)로 출력
                 if (current_time - rx_trackers[i].last_protocol_time >= 1000) {
                     can_output_raw_message(rx_trackers[i].id, &rx_trackers[i].msg);
                     rx_trackers[i].last_protocol_time = current_time;
                 }
-            }
+            } */
         }
     }
 }
@@ -1236,29 +1132,27 @@ void can_filter_listen_process(void)
 // CAN 메시지를 UART로 출력하는 함수
 void can_output_raw_message(uint32_t can_id, const can_msg_t *msg)
 {
+
 #if DEBUG_CAN
     // DEBUG_CAN이 1일 때는 특정 CAN ID만 출력
     if (!is_debug_can_id(can_id)) {
         all_printf("FILTERED: 0x%lX (not in debug list)\r\n", can_id);
         return;  // 디버그 목록에 없는 ID는 출력하지 않음
     }
-    all_printf("ALLOWED: 0x%lX (in debug list)\r\n", can_id);
 #endif
 
-#if DEBUG_CAN
     // DEBUG_CAN이 1일 때만 출력
     // CAN ID와 Data를 분리해서 표시
     all_printf("[CAN] ID: 0x%lX | Data: ", can_id);
     
     // Raw DLC 값을 직접 사용 (canGetLen 함수의 버그 우회)
-    uint8_t data_length = msg->length;
+    uint16_t data_length = msg->length;
     if (data_length > 64) data_length = 64;  // 안전장치
     
     for (int i = 0; i < data_length; i++) {
         all_printf("%02X ", msg->data[i]);
     }
-    all_printf("| DLC: %d\r\n", data_length);
-#endif
+    all_printf("| DLC: %d | Length: %d\r\n", msg->dlc, data_length);
 }
 
 // 프로토콜 메시지를 설명과 함께 UART로 출력하는 함수
