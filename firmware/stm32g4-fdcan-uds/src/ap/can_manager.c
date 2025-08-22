@@ -1,4 +1,5 @@
 #include "can_manager.h"
+#include "cli.h"
 
 // UDS 관련 상수 정의
 #define UDS_FUNCTIONAL_ID    0x7DF  // UDS 기능적 요청 ID
@@ -19,6 +20,8 @@ static uint32_t uds_message_count = 0;
 // 외부에서 사용할 UDS 디버깅 함수 선언
 extern void uds_debug_output(uint32_t can_id, uint8_t *data, uint8_t length);
 
+// CLI 함수 제거됨 - TALK 모드에서 직접 입력 처리
+
 
 // CAN 매니저 초기화
 bool can_manager_init(bool tx_mode)
@@ -36,8 +39,10 @@ bool can_manager_init(bool tx_mode)
     }
     
     all_printf("UDS CAN initialized: 500K/2M, CAN-FD BRS\r\n");
-    all_printf("UDS Mode: Receive and Debug Output\r\n");
+    all_printf("UDS Mode: %s\r\n", tx_mode ? "RX/TX (TX Enabled)" : "RX Only");
     all_printf("Monitoring All CAN IDs (including OEM specific IDs)\r\n");
+    
+// CLI 명령어는 TALK 모드에서 직접 입력 방식으로 대체됨
     
     can_initialized = true;
     return true;
@@ -80,9 +85,9 @@ void uds_rx_process(void)
     if (millis() - last_status_time >= 10000)
     {
         last_status_time = millis();
-        all_printf("UDS Status: %lu messages received, last: %lu ms ago\r\n", 
-                   uds_message_count, 
-                   last_uds_message_time > 0 ? (millis() - last_uds_message_time) : 0);
+        // all_printf("UDS Status: %lu messages received, last: %lu ms ago\r\n", 
+        //            uds_message_count, 
+        //            last_uds_message_time > 0 ? (millis() - last_uds_message_time) : 0);
     }
 }
 
@@ -273,3 +278,5 @@ void can_error_recovery(void)
     
     all_printf("UDS CAN recovery completed\r\n");
 }
+
+// CLI 함수 제거됨 - TALK 모드에서 직접 터미널 입력 처리로 대체

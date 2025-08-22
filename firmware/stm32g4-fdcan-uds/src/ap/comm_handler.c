@@ -61,10 +61,19 @@ void uds_debug_output(uint32_t can_id, uint8_t *data, uint8_t length)
     if (mode == UDS_MODE_NORMAL) {
         // NORMAL 모드: 기존 상세 UDS 메시지 출력
         uds_normal_output(can_id, data, length);
+    } else if (mode == UDS_MODE_TALK) {
+        // TALK 모드: 간단한 RX 메시지 출력
+        all_printf("[RX] ID: 0x%lX | Length: %d | Data: ", can_id, length);
+        for (int i = 0; i < length; i++) {
+            all_printf("%02X ", data[i]);
+        }
+        all_printf("\r\n");
     }
     
-    // 두 모드 모두에서 스티어링 데이터 처리 (STEERING 모드에서는 이 부분만 동작)
-    steering_data_handler(can_id, data, length);
+    // UDS_PATH 모드에서는 스티어링 데이터 처리만
+    if (mode == UDS_MODE_UDS_PATH) {
+        steering_data_handler(can_id, data, length);
+    }
 }
 
 // NORMAL 모드에서의 상세 UDS 출력
@@ -256,8 +265,8 @@ void steering_data_handler(uint32_t can_id, uint8_t *data, uint8_t length)
                     snprintf(steering_msg, sizeof(steering_msg), "%.1f\r\n", steering_angle);
                     uartPrintf(HW_UART_CH_EXT, steering_msg);
                     
-                    // STEERING 모드에서만 상세 확인 메시지
-                    if (get_current_mode() == UDS_MODE_STEERING) {
+                    // UDS_PATH 모드에서만 상세 확인 메시지
+                    if (get_current_mode() == UDS_MODE_UDS_PATH) {
                         // 스티어링 각도 표시
                         int steer_int = (int)steering_angle;
                         int steer_dec = (int)((steering_angle - steer_int) * 10);
@@ -266,7 +275,7 @@ void steering_data_handler(uint32_t can_id, uint8_t *data, uint8_t length)
                         // 차량 속도 표시
                         int speed_int = (int)vehicle_speed;
                         
-                        all_printf("STEERING: %02X %02X -> %d.%d Degree | SPEED: %02X -> %d km/h\r\n", 
+                        all_printf("UDS_PATH: %02X %02X -> %d.%d Degree | SPEED: %02X -> %d km/h\r\n", 
                                   steering_byte7, steering_byte8, steer_int, steer_dec, 
                                   speed_raw, speed_int);
                     }
