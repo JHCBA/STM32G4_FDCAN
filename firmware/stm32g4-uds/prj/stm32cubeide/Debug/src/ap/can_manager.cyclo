@@ -1,0 +1,8 @@
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/can_manager.c:27:6:can_manager_init	2
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/can_manager.c:204:13:uds_get_service_name	2
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/can_manager.c:104:6:uds_print_message_info	17
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/can_manager.c:279:6:can_error_recovery	1
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/can_manager.c:246:6:can_error_check	5
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/can_manager.c:292:6:uds_auto_flow_control	7
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/can_manager.c:65:6:uds_rx_process	5
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/can_manager.c:53:6:can_manager_process	2

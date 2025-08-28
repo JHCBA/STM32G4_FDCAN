@@ -1,0 +1,5 @@
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/bsp/bsp.c:10:6:bspInit	120	static,ignoring_inline_asm
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/bsp/bsp.c:33:6:bspDeInit	8	static,ignoring_inline_asm
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/bsp/bsp.c:50:6:delay	0	static
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/bsp/bsp.c:55:10:millis	0	static
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/bsp/bsp.c:62:6:Error_Handler	0	static,ignoring_inline_asm
