@@ -16,6 +16,7 @@ void can_manager_process(void);
 void uds_rx_process(void);
 void uds_print_message_info(uint32_t can_id, uint8_t *data, uint8_t length);
 const char* uds_get_service_name(uint8_t service_id);
+void uds_auto_flow_control(can_msg_t *rx_msg);
 
 // CAN 에러 처리 함수들
 void can_error_check(void);

@@ -13,7 +13,7 @@ bool is_update_fw = false;
 bool is_can_mode = true;  // UDS 전용 CAN 모드
 
 // 모드 관리용 변수들
-static uint32_t default_can_id = 0x7DF;  // 기본 CAN ID
+static uint32_t default_can_id = 0x7DF;  // 기본 CAN ID (ECU 특정 주소)
 
 static uds_mode_t current_mode = UDS_MODE_TALK;
 static uint32_t last_button_time = 0;
@@ -83,7 +83,7 @@ bool can_tx_message(uint32_t id, uint8_t *data, uint8_t length)
     
     // 8바이트까지 0x55로 패딩
     for (int i = length; i < actual_length; i++) {
-        tx_msg.data[i] = 0x55;
+        tx_msg.data[i] = 0x00;
     }
     
     // 나머지 바이트는 0으로 채움 (8바이트 이후)
@@ -187,7 +187,7 @@ bool parse_can_data(const char* input, uint32_t* id, uint8_t* data, uint8_t* len
         }
         // 8바이트까지 패딩 표시
         for (int i = *length; i < 8; i++) {
-            all_printf("55 ");
+            all_printf("00 ");
         }
         all_printf("\r\n");
     }
@@ -213,7 +213,7 @@ bool process_macro_command(const char* input)
     
     // "f" 명령 처리
     if (strcmp(input, "f") == 0) {
-        uint8_t data[] = {0x30, 0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00};
+        uint8_t data[] = {0x30, 0x08, 0x02, 0x55, 0x55, 0x55, 0x55, 0x55};
         uint32_t id = get_default_can_id();
         all_printf("[TX ATTEMPT] ID: 0x%lX (STD) | Length: 8 | Data: 30 08 02 00 00 00 00 00\r\n", id);
         can_tx_message(id, data, 8);

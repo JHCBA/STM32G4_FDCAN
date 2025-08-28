@@ -5,7 +5,7 @@
 #define UDS_FUNCTIONAL_ID    0x7DF  // UDS 기능적 요청 ID
 #define UDS_PHYSICAL_ID      0x7E0  // UDS 물리적 요청 ID (예시)
 #define UDS_RESPONSE_ID      0x7E8  // UDS 응답 ID (예시)
-
+#define UDS_MODE_TALK 0x02
 // 정적 변수들
 static uint32_t error_check_time = 0;
 static uint32_t last_tx_err_count = 0;
@@ -32,7 +32,7 @@ bool can_manager_init(bool tx_mode)
     
     CanMode_t can_mode = CAN_NORMAL;  // UDS는 일반 CAN 모드 사용
     
-    if (canOpen(_DEF_CAN1, can_mode, CAN_FD_BRS, CAN_500K, CAN_2M) == false)
+    if (canOpen(_DEF_CAN1, can_mode, CAN_CLASSIC, CAN_500K, CAN_2M) == false)
     {
         all_printf("UDS CAN init failed\r\n");
         return false;
@@ -41,6 +41,7 @@ bool can_manager_init(bool tx_mode)
     all_printf("UDS CAN initialized: 500K/2M, CAN-FD BRS\r\n");
     all_printf("UDS Mode: %s\r\n", tx_mode ? "RX/TX (TX Enabled)" : "RX Only");
     all_printf("Monitoring All CAN IDs (including OEM specific IDs)\r\n");
+    all_printf("CAN Filter: Accept ALL messages for UDS debugging\r\n");
     
 // CLI 명령어는 TALK 모드에서 직접 입력 방식으로 대체됨
     
@@ -75,8 +76,16 @@ void uds_rx_process(void)
             // UDS 디버깅 정보 출력 (요구사항에 맞는 형식)
             uds_debug_output(rx_msg.id, rx_msg.data, rx_msg.length);
             
+            // ISO-TP First Frame 자동 Flow Control 처리
+            uds_auto_flow_control(&rx_msg);
+            
             // LED 토글로 수신 표시
             ledToggle(HW_LED_CH_RX);
+            
+            // 추가 디버깅: 수신 카운터 표시
+            if (uds_message_count % 10 == 1) {  // 매 10번째 메시지마다
+                all_printf("[DEBUG] Total RX: %lu messages\r\n", uds_message_count);
+            }
         }
     }
     
@@ -277,6 +286,61 @@ void can_error_recovery(void)
     delay(10);
     
     all_printf("UDS CAN recovery completed\r\n");
+}
+
+// ISO-TP 자동 Flow Control 처리 함수
+void uds_auto_flow_control(can_msg_t *rx_msg)
+{
+    // TALK 모드에서만 자동 Flow Control 동작
+    if (get_current_mode() != UDS_MODE_TALK) {
+        return;
+    }
+    
+    if (rx_msg->length < 1) return;
+    
+    uint8_t pci = rx_msg->data[0];
+    uint8_t frame_type = (pci >> 4) & 0x0F;
+    
+    // First Frame (0x1)인지 확인
+    if (frame_type == 0x1) {
+        // 전체 데이터 길이 확인
+        uint16_t total_length = ((pci & 0x0F) << 8) | rx_msg->data[1];
+        
+        all_printf("[AUTO FC] First Frame detected: Total %d bytes\r\n", total_length);
+        
+        // 모든 UDS 응답에 대해 Flow Control 전송 (길이가 8바이트를 초과하는 경우)
+        if (rx_msg->length >= 3 && total_length > 7) {
+            // Flow Control 메시지 구성
+            can_msg_t flow_control_msg;
+            
+            // 응답 ID 계산 (일반적으로 수신 ID - 8)
+            // 0x7DC(수신) -> 0x7D4(송신)
+            uint32_t tx_id = rx_msg->id - 8;
+            
+            // CAN 메시지 초기화
+            canMsgInit(&flow_control_msg, CAN_CLASSIC, CAN_STD, canGetDlc(8));
+            flow_control_msg.id = tx_id;
+            flow_control_msg.length = 8;
+            
+            // Flow Control 데이터 구성
+            flow_control_msg.data[0] = 0x30;  // Flow Control (0x3) + CTS (0x0)
+            flow_control_msg.data[1] = 0x00;  // Block Size (0 = 무제한)
+            flow_control_msg.data[2] = 0x00;  // Separation Time (0ms)
+            flow_control_msg.data[3] = 0x00;  // 패딩
+            flow_control_msg.data[4] = 0x00;  // 패딩
+            flow_control_msg.data[5] = 0x00;  // 패딩
+            flow_control_msg.data[6] = 0x00;  // 패딩
+            flow_control_msg.data[7] = 0x00;  // 패딩
+            
+            // Flow Control 전송
+            all_printf("[AUTO FC] Sending Flow Control: 30 00 00 (CTS)\r\n");
+            if (canMsgWrite(_DEF_CAN1, &flow_control_msg, 100)) {
+                all_printf("[AUTO FC] Flow Control sent to ID: 0x%lX\r\n", tx_id);
+            } else {
+                all_printf("[AUTO FC] Flow Control send failed!\r\n");
+            }
+        }
+    }
 }
 
 // CLI 함수 제거됨 - TALK 모드에서 직접 터미널 입력 처리로 대체

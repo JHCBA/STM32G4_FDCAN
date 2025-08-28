@@ -223,11 +223,14 @@ bool canOpen(uint8_t ch, CanMode_t mode, CanFrame_t frame, CanBaud_t baud, CanBa
   }
 
   canSetFilterType(CAN_ID_MASK);
-  canConfigFilter(ch, 0, CAN_STD, 0x0000, 0x0000);
-  canConfigFilter(ch, 0, CAN_EXT, 0x0000, 0x0000);
+  // 모든 표준 ID 수신 허용 (UDS 디버깅용)
+  canConfigFilter(ch, 0, CAN_STD, 0x0000, 0x0000);  // MASK=0x0000이면 모든 ID 통과
+  // 모든 확장 ID 수신 허용
+  canConfigFilter(ch, 0, CAN_EXT, 0x00000000, 0x00000000);
 
 
-  if (HAL_FDCAN_ConfigGlobalFilter(p_can, FDCAN_REJECT, FDCAN_REJECT, FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE) != HAL_OK)
+  // Global Filter: 모든 표준/확장 ID 메시지를 FIFO0으로 수신
+  if (HAL_FDCAN_ConfigGlobalFilter(p_can, FDCAN_ACCEPT_IN_RX_FIFO0, FDCAN_ACCEPT_IN_RX_FIFO0, FDCAN_FILTER_REMOTE, FDCAN_FILTER_REMOTE) != HAL_OK)
   {
     return false;
   }

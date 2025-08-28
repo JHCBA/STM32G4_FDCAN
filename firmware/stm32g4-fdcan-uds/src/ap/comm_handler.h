@@ -16,6 +16,7 @@ void all_printf(const char *fmt, ...);
 void uds_debug_output(uint32_t can_id, uint8_t *data, uint8_t length);
 void uds_normal_output(uint32_t can_id, uint8_t *data, uint8_t length);
 void steering_data_handler(uint32_t can_id, uint8_t *data, uint8_t length);
+void parse_steering_data(uint8_t *complete_data, uint8_t data_length);
 
 #ifdef __cplusplus
 }
