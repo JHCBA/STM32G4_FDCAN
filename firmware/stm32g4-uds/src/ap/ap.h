@@ -5,9 +5,8 @@
 
 // 모드 타입 정의
 typedef enum {
-    UDS_MODE_NORMAL = 0,    // 기존 상세 출력 모드
-    UDS_MODE_UDS_PATH = 1,  // UDS 데이터 추출 모드 (구 STEERING)
-    UDS_MODE_TALK = 2,      // 터미널 직접 TX 모드
+    UDS_MODE_UDS_PATH = 0,  // UDS 데이터 추출 모드 (스티어링 데이터 처리)
+    UDS_MODE_TALK = 1,      // 터미널 직접 TX 모드
     UDS_MODE_MAX
 } uds_mode_t;
 

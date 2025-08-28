@@ -7,6 +7,7 @@
 #include "can_manager.h"
 #include "uart.h"
 #include "cdc.h"
+#include "diag_db.h"
 
 bool is_run_fw = true;
 bool is_update_fw = false;
@@ -15,7 +16,7 @@ bool is_can_mode = true;  // UDS 전용 CAN 모드
 // 모드 관리용 변수들
 static uint32_t default_can_id = 0x7DF;  // 기본 CAN ID (ECU 특정 주소)
 
-static uds_mode_t current_mode = UDS_MODE_TALK;
+static uds_mode_t current_mode = UDS_MODE_UDS_PATH;
 static uint32_t last_button_time = 0;
 
 // 모드 상태를 가져오는 함수
@@ -29,21 +30,25 @@ void change_mode(void)
 {
     current_mode = (current_mode + 1) % UDS_MODE_MAX;
     
-    const char* mode_names[] = {"NORMAL", "UDS_PATH", "TALK"};
+    const char* mode_names[] = {"UDS_PATH", "TALK"};
     all_printf("\r\n[MODE CHANGE] Current Mode: %s\r\n", mode_names[current_mode]);
     
     switch (current_mode) {
-        case UDS_MODE_NORMAL:
-            all_printf("[NORMAL MODE] Full UDS message analysis\r\n");
-            break;
         case UDS_MODE_UDS_PATH:
             all_printf("[UDS_PATH MODE] UDS data extraction and UART transmission\r\n");
+            all_printf("- Steering angle data extraction from DID 0x0101\r\n");
+            all_printf("- Vehicle: %s\r\n", diag_db_get_vehicle_name());
             break;
         case UDS_MODE_TALK:
             all_printf("[TALK MODE] Terminal direct CAN TX mode\r\n");
             all_printf("Commands:\r\n");
             all_printf("  id 7e2        - Set default CAN ID to 0x7E2\r\n");
             all_printf("  f             - Send quick macro: 30 08 02 00 00 00 00 00\r\n");
+            all_printf("  steering      - Send steering data request\r\n");
+            all_printf("  info          - Show current DIAG_DB settings\r\n");
+            all_printf("  groups        - Show DID groups information\r\n");
+            all_printf("  enable speed  - Enable speed data (example)\r\n");
+            all_printf("  save          - Save settings to NVRAM\r\n");
             all_printf("  30 08 02      - Send data using default ID\r\n");
             all_printf("  7e2:30 08     - Send data with specific ID (ID:data format)\r\n");
             
@@ -104,7 +109,6 @@ bool can_tx_message(uint32_t id, uint8_t *data, uint8_t length)
     
     // CAN 전송
     if (canMsgWrite(_DEF_CAN1, &tx_msg, 100)) {
-        all_printf("[TX SUCCESS] Message sent\r\n");
         return true;
     } else {
         all_printf("[TX ERROR] Failed to send CAN message\r\n");
@@ -154,10 +158,7 @@ bool parse_can_data(const char* input, uint32_t* id, uint8_t* data, uint8_t* len
         while (*current == ' ' || *current == '\t') current++;  // 콜론 후 공백 제거
     } else {
         // 콜론이 없으면 모든 입력을 데이터로 처리하고 기본 ID 사용
-        *id = get_default_can_id();
-        
-        // 기본 ID로 전송한다고 미리 표시
-        all_printf("[TX ATTEMPT] ID: 0x%lX (STD) | Length: ", *id);
+        *id = get_default_can_id();        
     }
     
     // 데이터 바이트들 파싱
@@ -215,8 +216,61 @@ bool process_macro_command(const char* input)
     if (strcmp(input, "f") == 0) {
         uint8_t data[] = {0x30, 0x08, 0x02, 0x55, 0x55, 0x55, 0x55, 0x55};
         uint32_t id = get_default_can_id();
-        all_printf("[TX ATTEMPT] ID: 0x%lX (STD) | Length: 8 | Data: 30 08 02 00 00 00 00 00\r\n", id);
         can_tx_message(id, data, 8);
+        return true;
+    }
+    
+    // "steering" 명령 처리
+    if (strcmp(input, "steering") == 0) {
+        diag_db_send_steering_request();
+        return true;
+    }
+    
+    // "info" 명령 처리
+    if (strcmp(input, "info") == 0) {
+        diag_db_print_current_settings();
+        return true;
+    }
+    
+    // "save" 명령 처리
+    if (strcmp(input, "save") == 0) {
+        if (diag_db_save_to_nvram()) {
+            all_printf("Settings saved to NVRAM\r\n");
+        } else {
+            all_printf("Failed to save settings\r\n");
+        }
+        return true;
+    }
+    
+    // "groups" 명령 처리
+    if (strcmp(input, "groups") == 0) {
+        all_printf("=== DID Groups Information ===\r\n");
+        for (int i = 0; i < g_did_group_count; i++) {
+            did_group_t* group = &g_did_groups[i];
+            all_printf("Group %d: DID=0x%04X, REQ=0x%lX, RESP=0x%lX\r\n",
+                      i, group->did, group->request_id, group->response_id);
+            all_printf("  Period: %lums, Last: %lums ago, Active: %s\r\n",
+                      group->min_period_ms, 
+                      millis() - group->last_request_time,
+                      group->is_active ? "YES" : "NO");
+            all_printf("  Data types (%d): ", group->data_type_count);
+            for (int j = 0; j < group->data_type_count; j++) {
+                all_printf("%s", diag_db_get_data_type_name(group->data_types[j]));
+                if (j < group->data_type_count - 1) all_printf(", ");
+            }
+            all_printf("\r\n");
+        }
+        return true;
+    }
+    
+    // "enable speed" 명령 처리 (예시)
+    if (strcmp(input, "enable speed") == 0) {
+        if (diag_db_enable_data_type(DATA_TYPE_SPEED, true)) {
+            all_printf("Speed data enabled\r\n");
+            diag_db_rebuild_did_groups();
+        } else {
+            all_printf("Failed to enable speed data\r\n");
+        }
         return true;
     }
     
@@ -258,10 +312,7 @@ void process_talk_input(void)
         if (ch == '\r' || ch == '\n') {
             // ENTER 입력 시 처리 (강화된 중복 방지)
             uint32_t current_time = millis();
-            
-            all_printf("[DEBUG] ENTER detected: ch=0x%02X, time=%lu, last_time=%lu, processing=%d, buffer_idx=%d\r\n", 
-                      (uint8_t)ch, current_time, last_enter_time, processing_command, buffer_index);
-            
+                        
             // 이미 처리 중이면 완전히 무시
             if (processing_command) {
                 all_printf("[DEBUG] Command already processing, ignoring\r\n");
@@ -280,7 +331,6 @@ void process_talk_input(void)
                 last_enter_time = current_time;
                 
                 input_buffer[buffer_index] = '\0';
-                all_printf("[DEBUG] Processing command: '%s'\r\n", input_buffer);
                 
                 // 매크로 명령 체크 먼저
                 if (process_macro_command(input_buffer)) {
@@ -386,14 +436,17 @@ void apInit(void)
     uartOpen(HW_UART_CH_DEBUG, 115200);  // USART1 DEBUG
     uartOpen(HW_UART_CH_EXT, 115200);    // USART3 EXT - Steering Column 통신용
     
+    // DIAG_DB 초기화
+    diag_db_init();
+    
     all_printf("Starting UDS Application...\r\n");
     all_printf("USB CDC Status: %s\r\n", cdcIsConnect() ? "Connected" : "Not Connected");
     all_printf("Press BOOT button for bootloader\r\n");
     all_printf("Press BUTTON 4 (S2) to change mode\r\n");
     all_printf("UDS Message Mode: Receive and Debug Output\r\n");
     all_printf("Steering Column UART: USART3 (115200 bps)\r\n");
-    all_printf("Current Mode: NORMAL (Full UDS analysis)\r\n");
-    all_printf("Available Modes: NORMAL -> UDS_PATH -> TALK\r\n");
+    all_printf("Current Mode: UDS_PATH (Steering data extraction)\r\n");
+    all_printf("Available Modes: UDS_PATH (0) -> TALK (1)\r\n");
     
     // UART 상태 확인
     all_printf("UART DEBUG Status: %s\r\n", uartIsOpen(HW_UART_CH_DEBUG) ? "OPEN" : "CLOSED");
@@ -465,6 +518,9 @@ void apMain(void)
     {
       // UDS CAN 애플리케이션 모드
       can_manager_process();
+      
+      // 주기적 UDS 요청 처리
+      diag_db_process_periodic_requests();
       
       // TALK 모드에서 터미널 입력 처리
       static uint32_t mode_debug_counter = 0;

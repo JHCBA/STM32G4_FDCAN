@@ -1,6 +1,7 @@
 "./src/ap/ap.o"
 "./src/ap/can_manager.o"
 "./src/ap/comm_handler.o"
+"./src/ap/diag_db.o"
 "./src/ap/thread/boot/boot.o"
 "./src/ap/thread/cmd/cmd_thread.o"
 "./src/ap/thread/cmd/driver/cmd_uart.o"

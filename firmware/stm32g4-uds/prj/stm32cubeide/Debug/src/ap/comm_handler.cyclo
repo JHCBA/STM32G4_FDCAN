@@ -1,7 +1,8 @@
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:8:6:uart_printf	1
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:21:6:cdc_printf	2
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:36:6:all_printf	2
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:83:6:parse_steering_data	4
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:140:6:steering_data_handler	18
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:228:6:uds_normal_output	13
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:56:6:uds_debug_output	6
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:9:6:uart_printf	1
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:22:6:cdc_printf	2
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:37:6:all_printf	2
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:81:6:parse_multiple_data	8
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:123:6:parse_data	4
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:156:6:parse_steering_data	1
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:162:6:steering_data_handler	22
+C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/ap/comm_handler.c:57:6:uds_debug_output	5

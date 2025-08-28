@@ -1,11 +1,12 @@
 #include "can_manager.h"
 #include "cli.h"
+#include "ap.h"
 
 // UDS 관련 상수 정의
 #define UDS_FUNCTIONAL_ID    0x7DF  // UDS 기능적 요청 ID
 #define UDS_PHYSICAL_ID      0x7E0  // UDS 물리적 요청 ID (예시)
 #define UDS_RESPONSE_ID      0x7E8  // UDS 응답 ID (예시)
-#define UDS_MODE_TALK 0x02
+
 // 정적 변수들
 static uint32_t error_check_time = 0;
 static uint32_t last_tx_err_count = 0;
