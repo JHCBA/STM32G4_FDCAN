@@ -4,6 +4,16 @@
 #include <string.h>
 #include <stdio.h>
 
+// DEBUG 출력 매크로
+#define DEBUG_CAN_PROTOCOL  0  // 1: 활성화, 0: 비활성화
+
+#if DEBUG_CAN_PROTOCOL
+#define DEBUG_PRINT(fmt, ...) all_printf(fmt, ##__VA_ARGS__)
+#else
+#define DEBUG_PRINT(fmt, ...) do {} while(0)
+#endif
+
+#define DATA_START_IDX  3
 // 전역 차량 설정 변수 (BLE로 업데이트 가능)
 vehicle_settings_t g_vehicle_settings;
 
@@ -43,28 +53,28 @@ void diag_db_load_defaults(void)
     steering->enabled = true;
     steering->did = 0x0101;
     steering->request_id = 0x7D4;       // 응답 ID는 0x7DC (자동 계산)
-    steering->data_offset = 4;          // 4,5번째 바이트 (0-based에서 4,5)
+    steering->data_offset = 7 + DATA_START_IDX;          // 7,8번째 바이트
     steering->data_length = 2;
     steering->resolution = 0.1f;
     steering->offset_value = 0;
     steering->is_signed = true;
-    steering->is_big_endian = true;     // MSB first
-    steering->request_period_ms = 100;  // 100ms 주기
+    steering->big_end_msb_first = true;     // MSB first
+    steering->request_period_ms = 1000;  // 100ms 주기
     strncpy(steering->unit, "deg", sizeof(steering->unit) - 1);
     strncpy(steering->name, "Steering", sizeof(steering->name) - 1);
     
     // 속도 데이터 기본 설정
     data_config_t* speed = &g_vehicle_settings.data_configs[DATA_TYPE_SPEED];
-    speed->enabled = false;             // 기본적으로 비활성화
+    speed->enabled = true;              // Steering과 함께 활성화
     speed->did = 0x0101;                // 스티어링과 같은 DID 사용
     speed->request_id = 0x7D4;          // 응답 ID는 0x7DC (자동 계산)
-    speed->data_offset = 9;             // 9번째 바이트
+    speed->data_offset = 12 + DATA_START_IDX;          // 12번째 바이트
     speed->data_length = 1;
     speed->resolution = 2.0f;
     speed->offset_value = 0;
     speed->is_signed = false;
-    speed->is_big_endian = false;
-    speed->request_period_ms = 200;     // 200ms 주기
+    speed->big_end_msb_first = false;
+    speed->request_period_ms = 1000;     // Steering과 같은 주기로 변경
     strncpy(speed->unit, "km/h", sizeof(speed->unit) - 1);
     strncpy(speed->name, "Speed", sizeof(speed->name) - 1);
     
@@ -78,11 +88,41 @@ void diag_db_load_defaults(void)
     rpm->resolution = 0.25f;
     rpm->offset_value = 0;
     rpm->is_signed = false;
-    rpm->is_big_endian = true;
+    rpm->big_end_msb_first = true;
     rpm->request_period_ms = 500;       // 500ms 주기
     strncpy(rpm->unit, "rpm", sizeof(rpm->unit) - 1);
     strncpy(rpm->name, "EngineRPM", sizeof(rpm->name) - 1);
     
+    // 배터리 온도 1
+    data_config_t* batt_temp_1 = &g_vehicle_settings.data_configs[DATA_TYPE_BATT_TEMP_1];
+    batt_temp_1->enabled = true;
+    batt_temp_1->did = 0x0101;
+    batt_temp_1->request_id = 0x7E4;            // 응답 ID는 0x7EC (자동 계산)
+    batt_temp_1->data_offset = 16 + DATA_START_IDX;     // 16번째 바이트
+    batt_temp_1->data_length = 1;
+    batt_temp_1->resolution = 1.0f;
+    batt_temp_1->offset_value = 0;
+    batt_temp_1->is_signed = true;
+    batt_temp_1->big_end_msb_first = true;
+    batt_temp_1->request_period_ms = 500;       // 500ms 주기
+    strncpy(batt_temp_1->unit, "Celsius", sizeof(batt_temp_1->unit) - 1);
+    strncpy(batt_temp_1->name, "BattTemp1", sizeof(batt_temp_1->name) - 1);
+    
+    // 배터리 온도 2
+    data_config_t* batt_temp_2 = &g_vehicle_settings.data_configs[DATA_TYPE_BATT_TEMP_2];
+    batt_temp_2->enabled = true;
+    batt_temp_2->did = 0x0101;
+    batt_temp_2->request_id = 0x7E4;            // 응답 ID는 0x7EC (자동 계산)
+    batt_temp_2->data_offset = 17 + DATA_START_IDX;     // 17번째 바이트
+    batt_temp_2->data_length = 1;
+    batt_temp_2->resolution = 1.0f;
+    batt_temp_2->offset_value = 0;
+    batt_temp_2->is_signed = true;
+    batt_temp_2->big_end_msb_first = true;
+    batt_temp_2->request_period_ms = 500;       // 500ms 주기
+    strncpy(batt_temp_2->unit, "Celsius", sizeof(batt_temp_2->unit) - 1);
+    strncpy(batt_temp_2->name, "BattTemp2", sizeof(batt_temp_2->name) - 1);
+
     // CRC32 계산
     g_vehicle_settings.crc32 = calculate_crc32((uint8_t*)&g_vehicle_settings, 
                                                sizeof(vehicle_settings_t) - sizeof(uint32_t));
@@ -93,12 +133,12 @@ void diag_db_init(void)
 {
     // 비휘발성 메모리에서 설정 로드 시도
     if (!diag_db_load_from_nvram()) {
-        all_printf("[DIAG_DB] NVRAM load failed, using defaults\r\n");
+        DEBUG_PRINT("[DIAG_DB] NVRAM load failed, using defaults\r\n");
         diag_db_load_defaults();
         diag_db_save_to_nvram();  // 기본값을 NVRAM에 저장
     }
     
-    all_printf("[DIAG_DB] Initialized\r\n");
+    DEBUG_PRINT("[DIAG_DB] Initialized\r\n");
     diag_db_print_current_settings();
     
     // DID 그룹 빌드
@@ -113,7 +153,7 @@ bool diag_db_save_to_nvram(void)
                                                sizeof(vehicle_settings_t) - sizeof(uint32_t));
     
     // TODO: 실제 NVRAM/EEPROM 저장 구현
-    all_printf("[DIAG_DB] Settings saved to NVRAM (CRC32: 0x%08lX)\r\n", g_vehicle_settings.crc32);
+    DEBUG_PRINT("[DIAG_DB] Settings saved to NVRAM (CRC32: 0x%08lX)\r\n", g_vehicle_settings.crc32);
     return true;
 }
 
@@ -128,13 +168,13 @@ bool diag_db_load_from_nvram(void)
 // 현재 설정 출력
 void diag_db_print_current_settings(void)
 {
-    all_printf("[DIAG_DB] Vehicle: %s (v%d)\r\n", 
+    DEBUG_PRINT("[DIAG_DB] Vehicle: %s (v%d)\r\n", 
               g_vehicle_settings.vehicle_name, g_vehicle_settings.version);
     
     for (int i = 0; i < DATA_TYPE_MAX; i++) {
         data_config_t* cfg = &g_vehicle_settings.data_configs[i];
         if (cfg->enabled) {
-            all_printf("[DIAG_DB] %s: DID=0x%04X, REQ=0x%lX, RESP=0x%lX, %s\r\n",
+            DEBUG_PRINT("[DIAG_DB] %s: DID=0x%04X, REQ=0x%lX, RESP=0x%lX, %s\r\n",
                       cfg->name, cfg->did, cfg->request_id, 
                       diag_db_get_response_id(cfg->request_id), cfg->unit);
         }
@@ -204,14 +244,14 @@ bool diag_db_set_data_params(data_type_t type, uint8_t offset, uint8_t length, f
     return true;
 }
 
-bool diag_db_set_data_format(data_type_t type, bool is_signed, bool is_big_endian)
+bool diag_db_set_data_format(data_type_t type, bool is_signed, bool big_end_msb_first)
 {
     if (type >= DATA_TYPE_MAX) {
         return false;
     }
     data_config_t* cfg = &g_vehicle_settings.data_configs[type];
     cfg->is_signed = is_signed;
-    cfg->is_big_endian = is_big_endian;
+    cfg->big_end_msb_first = big_end_msb_first;
     return true;
 }
 
@@ -247,7 +287,7 @@ void diag_db_rebuild_did_groups(void)
     memset(g_did_groups, 0, sizeof(g_did_groups));
     g_did_group_count = 0;
     
-    all_printf("[DIAG_DB] Rebuilding DID groups...\r\n");
+    DEBUG_PRINT("[DIAG_DB] Rebuilding DID groups...\r\n");
     
     // 활성화된 데이터 타입들을 스캔하여 그룹 생성
     for (int i = 0; i < DATA_TYPE_MAX; i++) {
@@ -264,7 +304,7 @@ void diag_db_rebuild_did_groups(void)
         if (!diag_db_find_did_group(cfg->did, cfg->request_id, response_id, &group)) {
             // 새 그룹 생성
             if (g_did_group_count >= MAX_DID_GROUPS) {
-                all_printf("[DIAG_DB] Warning: Max DID groups reached!\r\n");
+                DEBUG_PRINT("[DIAG_DB] Warning: Max DID groups reached!\r\n");
                 break;
             }
             
@@ -292,13 +332,13 @@ void diag_db_rebuild_did_groups(void)
     // 생성된 그룹 정보 출력
     for (int i = 0; i < g_did_group_count; i++) {
         did_group_t* group = &g_did_groups[i];
-        all_printf("[DIAG_DB] Group %d: DID=0x%04X, REQ=0x%lX, RESP=0x%lX, Period=%lums, Types=%d\r\n",
+        DEBUG_PRINT("[DIAG_DB] Group %d: DID=0x%04X, REQ=0x%lX, RESP=0x%lX, Period=%lums, Types=%d\r\n",
                   i, group->did, group->request_id, group->response_id, 
                   group->min_period_ms, group->data_type_count);
         
         // 그룹에 속한 데이터 타입들 출력
         for (int j = 0; j < group->data_type_count; j++) {
-            all_printf("  - %s\r\n", diag_db_get_data_type_name(group->data_types[j]));
+            DEBUG_PRINT("  - %s\r\n", diag_db_get_data_type_name(group->data_types[j]));
         }
     }
 }
@@ -332,8 +372,16 @@ void diag_db_send_group_request(did_group_t* group)
         0x55, 0x55, 0x55, 0x55          // 패딩
     };
     
-    all_printf("[DIAG_DB] Group request: DID=0x%04X, %d data types\r\n", 
+    // 그룹에 포함된 데이터 타입들을 함께 출력
+    DEBUG_PRINT("[DIAG_DB] Group request: DID=0x%04X, %d data types [", 
               group->did, group->data_type_count);
+    for (int i = 0; i < group->data_type_count; i++) {
+        DEBUG_PRINT("%s", diag_db_get_data_type_name(group->data_types[i]));
+        if (i < group->data_type_count - 1) {
+            DEBUG_PRINT(", ");
+        }
+    }
+    DEBUG_PRINT("]\r\n");
     
     // CAN 메시지 전송
     if (get_current_mode() == UDS_MODE_UDS_PATH) {
@@ -383,7 +431,9 @@ bool diag_db_is_response_id(uint32_t can_id, data_type_t* data_type)
 // 범용 데이터 추출 함수
 bool diag_db_extract_data_value(data_type_t type, uint8_t *complete_data, uint8_t data_length, float *value)
 {
+    
     if (type >= DATA_TYPE_MAX || !complete_data || !value) {
+        DEBUG_PRINT("[DIAG_DB] === FUNCTION END: %s (invalid params) ===\r\n", diag_db_get_data_type_name(type));
         return false;
     }
     
@@ -393,10 +443,17 @@ bool diag_db_extract_data_value(data_type_t type, uint8_t *complete_data, uint8_
         return false;
     }
     
+    // UDS_PATH 모드에서만 Complete data 출력 (첫 번째 데이터 타입에서만)
+    if (get_current_mode() == UDS_MODE_UDS_PATH && type == DATA_TYPE_STEERING) {
+        DEBUG_PRINT("[DIAG_DB] Complete data (%d bytes): ", data_length);
+        for (int i = 0; i < data_length; i++) {
+            DEBUG_PRINT("%02X ", complete_data[i]);
+        }
+        DEBUG_PRINT("\r\n");
+    }
+    
     // 데이터 길이 확인
     if (data_length < (cfg->data_offset + cfg->data_length)) {
-        all_printf("[DIAG_DB] %s: Insufficient data length: %d (need %d)\r\n", 
-                  cfg->name, data_length, cfg->data_offset + cfg->data_length);
         return false;
     }
     
@@ -406,18 +463,22 @@ bool diag_db_extract_data_value(data_type_t type, uint8_t *complete_data, uint8_
         uint16_t did = (complete_data[1] << 8) | complete_data[2];
         
         if (service_id != UDS_SERVICE_READ_DATA_BY_ID_RESP || did != cfg->did) {
-            all_printf("[DIAG_DB] %s: Invalid service or DID: Service=0x%02X, DID=0x%04X\r\n", 
-                      cfg->name, service_id, did);
             return false;
         }
     }
+    
+
     
     // 데이터 추출
     uint8_t *data_ptr = &complete_data[cfg->data_offset];
     uint32_t raw_value = 0;
     
+
+    
     // 바이트 순서에 따른 데이터 읽기
-    if (cfg->is_big_endian) {
+    DEBUG_PRINT("[DIAG_DB] %s: Starting data conversion (big_endian=%d)\r\n", cfg->name, cfg->big_end_msb_first);
+    
+    if (cfg->big_end_msb_first) {
         // 빅엔디안 (MSB first)
         for (int i = 0; i < cfg->data_length; i++) {
             raw_value = (raw_value << 8) | data_ptr[i];
@@ -429,8 +490,12 @@ bool diag_db_extract_data_value(data_type_t type, uint8_t *complete_data, uint8_
         }
     }
     
+
+    
     // 부호 처리
+              
     if (cfg->is_signed && cfg->data_length <= 4) {
+
         int32_t signed_value;
         switch (cfg->data_length) {
             case 1:
@@ -454,11 +519,35 @@ bool diag_db_extract_data_value(data_type_t type, uint8_t *complete_data, uint8_
                 signed_value = (int32_t)raw_value;
                 break;
         }
+
+        
         *value = (signed_value + cfg->offset_value) * cfg->resolution;
+        // UDS_PATH 모드에서만 상세 출력
+        if (get_current_mode() == UDS_MODE_UDS_PATH) {
+            int final_int = (int)(*value * 10);
+            int whole_part = final_int / 10;
+            int decimal_part = final_int % 10;
+            if (decimal_part < 0) decimal_part = -decimal_part;
+            
+            DEBUG_PRINT("[DIAG_DB] %s: Raw=0x%04X, Signed=%d, Resolution=%d, Final=%d.%d %s\r\n", 
+                       cfg->name, raw_value, signed_value, (int)cfg->resolution, 
+                       whole_part, decimal_part, cfg->unit);
+        }
     } else {
         *value = (raw_value + cfg->offset_value) * cfg->resolution;
-    }
-    
+        
+        // UDS_PATH 모드에서만 상세 출력
+        if (get_current_mode() == UDS_MODE_UDS_PATH) {
+            int final_int = (int)(*value * 10);
+            int whole_part = final_int / 10;
+            int decimal_part = final_int % 10;
+            if (decimal_part < 0) decimal_part = -decimal_part;
+            
+            DEBUG_PRINT("[DIAG_DB] %s: Raw=0x%04X, Unsigned=%u, Resolution=%d, Final=%d.%d %s\r\n", 
+                       cfg->name, raw_value, raw_value, (int)cfg->resolution,
+                       whole_part, decimal_part, cfg->unit);
+        }
+    }    
     return true;
 }
 
@@ -472,7 +561,7 @@ void diag_db_send_data_request(data_type_t type)
     data_config_t* cfg = &g_vehicle_settings.data_configs[type];
     
     if (!cfg->enabled) {
-        all_printf("[DIAG_DB] %s is disabled\r\n", cfg->name);
+        DEBUG_PRINT("[DIAG_DB] %s is disabled\r\n", cfg->name);
         return;
     }
     
@@ -485,14 +574,14 @@ void diag_db_send_data_request(data_type_t type)
         0x55, 0x55, 0x55, 0x55          // 패딩
     };
     
-    all_printf("[DIAG_DB] Sending %s request (DID 0x%04X) to ID 0x%lX\r\n", 
+    DEBUG_PRINT("[DIAG_DB] Sending %s request (DID 0x%04X) to ID 0x%lX\r\n", 
               cfg->name, cfg->did, cfg->request_id);
     
     // CAN 메시지 전송 (TALK 모드에서만 가능)
     if (get_current_mode() == UDS_MODE_TALK) {
         can_tx_message(cfg->request_id, request_data, 8);
     } else {
-        all_printf("[DIAG_DB] Request can only be sent in TALK mode\r\n");
+        DEBUG_PRINT("[DIAG_DB] Request can only be sent in TALK mode\r\n");
     }
 }
 
@@ -500,7 +589,7 @@ void diag_db_send_data_request(data_type_t type)
 const char* diag_db_get_data_type_name(data_type_t type)
 {
     static const char* type_names[] = {
-        "Steering", "Speed", "EngineRPM", "Throttle", "Brake"
+        "Steering", "Speed", "EngineRPM", "BattTemp1", "BattTemp2"
     };
     
     if (type < DATA_TYPE_MAX) {
@@ -549,7 +638,7 @@ ble_cmd_result_t diag_db_ble_set_vehicle_name(const char* cmd)
     }
     
     if (diag_db_set_vehicle_name(name)) {
-        all_printf("[BLE] Vehicle name set to: %s\r\n", name);
+        DEBUG_PRINT("[BLE] Vehicle name set to: %s\r\n", name);
         return BLE_CMD_OK;
     }
     return BLE_CMD_ERROR_INVALID_PARAM;
@@ -570,7 +659,7 @@ ble_cmd_result_t diag_db_ble_enable_data_type(const char* cmd)
     }
     
     if (diag_db_enable_data_type((data_type_t)type, enable != 0)) {
-        all_printf("[BLE] %s %s\r\n", 
+        DEBUG_PRINT("[BLE] %s %s\r\n", 
                   diag_db_get_data_type_name((data_type_t)type),
                   enable ? "enabled" : "disabled");
         return BLE_CMD_OK;
@@ -594,7 +683,7 @@ ble_cmd_result_t diag_db_ble_set_did(const char* cmd)
     }
     
     if (diag_db_set_did((data_type_t)type, (uint16_t)did)) {
-        all_printf("[BLE] %s DID set to 0x%04X\r\n", 
+        DEBUG_PRINT("[BLE] %s DID set to 0x%04X\r\n", 
                   diag_db_get_data_type_name((data_type_t)type), did);
         return BLE_CMD_OK;
     }
@@ -617,7 +706,7 @@ ble_cmd_result_t diag_db_ble_set_request_id(const char* cmd)
     }
     
     if (diag_db_set_request_id((data_type_t)type, req_id)) {
-        all_printf("[BLE] %s Request ID set: REQ=0x%lX, RESP=0x%lX\r\n", 
+        DEBUG_PRINT("[BLE] %s Request ID set: REQ=0x%lX, RESP=0x%lX\r\n", 
                   diag_db_get_data_type_name((data_type_t)type), 
                   (uint32_t)req_id, diag_db_get_response_id(req_id));
         return BLE_CMD_OK;
@@ -643,7 +732,7 @@ ble_cmd_result_t diag_db_ble_set_data_params(const char* cmd)
     
     if (diag_db_set_data_params((data_type_t)type, (uint8_t)offset, (uint8_t)length, 
                                resolution, (int16_t)offset_value)) {
-        all_printf("[BLE] %s data params set: offset=%d, len=%d, res=%.3f, off=%d\r\n", 
+        DEBUG_PRINT("[BLE] %s data params set: offset=%d, len=%d, res=%.3f, off=%d\r\n", 
                   diag_db_get_data_type_name((data_type_t)type), 
                   offset, length, resolution, offset_value);
         return BLE_CMD_OK;
@@ -656,8 +745,8 @@ ble_cmd_result_t diag_db_ble_set_data_format(const char* cmd)
 {
     if (!cmd) return BLE_CMD_ERROR_INVALID_PARAM;
     
-    int type, is_signed, is_big_endian;
-    if (sscanf(cmd, "SET_DATA_FORMAT:%d:%d:%d", &type, &is_signed, &is_big_endian) != 3) {
+    int type, is_signed, big_end_msb_first;
+    if (sscanf(cmd, "SET_DATA_FORMAT:%d:%d:%d", &type, &is_signed, &big_end_msb_first) != 3) {
         return BLE_CMD_ERROR_INVALID_FORMAT;
     }
     
@@ -665,11 +754,11 @@ ble_cmd_result_t diag_db_ble_set_data_format(const char* cmd)
         return BLE_CMD_ERROR_INVALID_TYPE;
     }
     
-    if (diag_db_set_data_format((data_type_t)type, is_signed != 0, is_big_endian != 0)) {
-        all_printf("[BLE] %s format set: %s, %s\r\n", 
+    if (diag_db_set_data_format((data_type_t)type, is_signed != 0, big_end_msb_first != 0)) {
+        DEBUG_PRINT("[BLE] %s format set: %s, %s\r\n", 
                   diag_db_get_data_type_name((data_type_t)type),
                   is_signed ? "signed" : "unsigned",
-                  is_big_endian ? "big-endian" : "little-endian");
+                  big_end_msb_first ? "big-endian" : "little-endian");
         return BLE_CMD_OK;
     }
     return BLE_CMD_ERROR_INVALID_PARAM;
@@ -691,7 +780,7 @@ ble_cmd_result_t diag_db_ble_set_data_info(const char* cmd)
     }
     
     if (diag_db_set_data_info((data_type_t)type, name, unit)) {
-        all_printf("[BLE] %s info set: name=%s, unit=%s\r\n", 
+        DEBUG_PRINT("[BLE] %s info set: name=%s, unit=%s\r\n", 
                   diag_db_get_data_type_name((data_type_t)type), name, unit);
         return BLE_CMD_OK;
     }
@@ -717,7 +806,7 @@ ble_cmd_result_t diag_db_ble_set_request_period(const char* cmd)
     }
     
     if (diag_db_set_request_period((data_type_t)type, (uint32_t)period)) {
-        all_printf("[BLE] %s period set to %dms\r\n", 
+        DEBUG_PRINT("[BLE] %s period set to %dms\r\n", 
                   diag_db_get_data_type_name((data_type_t)type), period);
         return BLE_CMD_OK;
     }

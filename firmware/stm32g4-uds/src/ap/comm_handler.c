@@ -5,6 +5,15 @@
 #include <stdio.h>
 #include <string.h>
 
+// DEBUG 출력 매크로
+#define DEBUG_CAN_PROTOCOL  0  // 1: 활성화, 0: 비활성화
+
+#if DEBUG_CAN_PROTOCOL
+#define DEBUG_PRINT(fmt, ...) all_printf(fmt, ##__VA_ARGS__)
+#else
+#define DEBUG_PRINT(fmt, ...) do {} while(0)
+#endif
+
 // 간단한 UART 출력 함수
 void uart_printf(const char *fmt, ...)
 {
@@ -72,8 +81,17 @@ void uds_debug_output(uint32_t can_id, uint8_t *data, uint8_t length)
     if (mode == UDS_MODE_UDS_PATH) {
         // DIAG_DB를 사용하여 등록된 응답 CAN ID 확인
         data_type_t data_type;
+        
+        // 디버그: 수신된 CAN ID와 예상 응답 ID 확인
+        static uint32_t last_debug_time = 0;
+        if (millis() - last_debug_time > 1000) {  // 1초마다만 출력
+            last_debug_time = millis();
+        }
+        
         if (diag_db_is_response_id(can_id, &data_type)) {
             steering_data_handler(can_id, data, length);
+        } else {
+            DEBUG_PRINT("[DEBUG] No matching response ID found\r\n");
         }
     }
 }
@@ -82,6 +100,14 @@ void parse_multiple_data(uint8_t *complete_data, uint8_t data_length, uint32_t c
 {
     // 해당 CAN ID와 매칭되는 모든 데이터 타입들을 찾아서 처리
     bool any_data_extracted = false;
+    char group_output[256] = {0};
+    char vehicle_name[32] = {0};
+    int group_count = 0;
+    
+    // 차량 이름 복사
+    strncpy(vehicle_name, diag_db_get_vehicle_name(), sizeof(vehicle_name) - 1);
+    
+
     
     for (int i = 0; i < DATA_TYPE_MAX; i++) {
         data_config_t* cfg = &g_vehicle_settings.data_configs[i];
@@ -91,9 +117,17 @@ void parse_multiple_data(uint8_t *complete_data, uint8_t data_length, uint32_t c
             continue;
         }
         
+        // UDS_PATH 모드에서만 체크 로그 출력
+        if (get_current_mode() == UDS_MODE_UDS_PATH) {
+            DEBUG_PRINT("[COMM] Checking data type %d (%s): enabled=%d, response_id=0x%03X, can_id=0x%03X\r\n", 
+                       i, cfg->name, cfg->enabled, diag_db_get_response_id(cfg->request_id), can_id);
+        }
+        
         // 데이터 추출 시도
         float value = 0.0f;
-        if (diag_db_extract_data_value((data_type_t)i, complete_data, data_length, &value)) {
+        bool extract_result = diag_db_extract_data_value((data_type_t)i, complete_data, data_length, &value);
+        if (extract_result) {
+            DEBUG_PRINT("[COMM] Data type %d (%s) extraction SUCCESS, value=%.1f\r\n", i, cfg->name, value);
             any_data_extracted = true;
             
             // 스티어링 데이터는 UART로 스티어링 컬럼에 전송
@@ -103,15 +137,103 @@ void parse_multiple_data(uint8_t *complete_data, uint8_t data_length, uint32_t c
                 uartPrintf(HW_UART_CH_EXT, steering_msg);
             }
             
-            // UDS_PATH 모드에서만 상세 확인 메시지
-            if (get_current_mode() == UDS_MODE_UDS_PATH) {
-                all_printf("[%s] %s: %.2f %s\r\n", 
-                          diag_db_get_vehicle_name(),
-                          diag_db_get_data_type_name((data_type_t)i),
-                          value,
-                          cfg->unit);
+            // Speed 데이터도 출력
+            if (i == DATA_TYPE_SPEED) {
+                // Speed 값도 확인용으로 출력 (디버그용)
+                DEBUG_PRINT("[COMM] Speed extracted: %.1f km/h\r\n", value);
             }
+            
+            DEBUG_PRINT("[COMM] About to prepare group output for %s\r\n", cfg->name);
+            
+            // UDS_PATH 모드에서만 그룹화된 출력 준비
+            if (get_current_mode() == UDS_MODE_UDS_PATH) {
+                DEBUG_PRINT("[COMM] UDS_PATH mode confirmed, group_count=%d\r\n", group_count);
+                if (group_count == 0) {                    
+                    const char* safe_vehicle_name = "UNKNOWN";
+                    if (vehicle_name) {
+                        DEBUG_PRINT("[COMM] vehicle_name is not NULL\r\n");
+                        safe_vehicle_name = vehicle_name;
+                    } else {
+                        DEBUG_PRINT("[COMM] vehicle_name is NULL\r\n");
+                    }
+
+                    DEBUG_PRINT("[COMM] Getting data type name for type %d\r\n", i);
+                    const char* safe_data_type_name = diag_db_get_data_type_name((data_type_t)i);
+                    DEBUG_PRINT("[COMM] Got data type name: %s\r\n", safe_data_type_name ? "NOT_NULL" : "NULL");
+                    
+                    const char* safe_unit = "";
+                    if (cfg->unit) {
+                        DEBUG_PRINT("[COMM] cfg->unit is not NULL\r\n");
+                        safe_unit = cfg->unit;
+                    } else {
+                        DEBUG_PRINT("[COMM] cfg->unit is NULL\r\n");
+                    }
+                    DEBUG_PRINT("[COMM] value received: %.6f\r\n", value);
+                    
+                    // Float 문제 해결을 위해 integer로 변환
+                    int value_int = (int)(value * 10);  // 95.7 -> 957
+                    int value_whole = value_int / 10;   // 957 -> 95
+                    int value_decimal = value_int % 10; // 957 -> 7
+                    if (value_decimal < 0) value_decimal = -value_decimal;
+                    
+                    DEBUG_PRINT("[COMM] Converted to int: whole=%d, decimal=%d\r\n", value_whole, value_decimal);
+                    
+                    if (safe_data_type_name) {
+                        DEBUG_PRINT("[COMM] Using data_type_name path\r\n");
+                        int result = snprintf(group_output, sizeof(group_output), "[%s] %s: %d.%d %s", 
+                                safe_vehicle_name ? safe_vehicle_name : "NULL",
+                                safe_data_type_name,
+                                value_whole,
+                                value_decimal,
+                                safe_unit ? safe_unit : "");
+                        DEBUG_PRINT("[COMM] snprintf returned: %d\r\n", result);
+                        DEBUG_PRINT("[COMM] First group data prepared: %s\r\n", group_output);
+                    } else {
+                        DEBUG_PRINT("[COMM] ERROR: data_type_name is NULL, using fallback!\r\n");
+                        int result = snprintf(group_output, sizeof(group_output), "[%s] DataType%d: %d.%d %s", 
+                                safe_vehicle_name ? safe_vehicle_name : "NULL", i, value_whole, value_decimal, safe_unit ? safe_unit : "");
+                        DEBUG_PRINT("[COMM] fallback snprintf returned: %d\r\n", result);
+                    }
+                    
+                    DEBUG_PRINT("[COMM] snprintf completed successfully\r\n");
+                } else {
+                    // 추가 데이터들은 같은 줄에 추가
+                    DEBUG_PRINT("[COMM] Preparing additional group data\r\n");
+                    
+                    // 추가 데이터도 integer로 변환
+                    int add_value_int = (int)(value * 10);
+                    int add_value_whole = add_value_int / 10;
+                    int add_value_decimal = add_value_int % 10;
+                    if (add_value_decimal < 0) add_value_decimal = -add_value_decimal;
+                    
+                    char temp[64];
+                    snprintf(temp, sizeof(temp), ", %s: %d.%d %s", 
+                            diag_db_get_data_type_name((data_type_t)i),
+                            add_value_whole,
+                            add_value_decimal,
+                            cfg->unit);
+                    strncat(group_output, temp, sizeof(group_output) - strlen(group_output) - 1);
+                    DEBUG_PRINT("[COMM] Additional group data prepared: %s\r\n", temp);
+                }
+                group_count++;
+                DEBUG_PRINT("[COMM] Group count now: %d\r\n", group_count);
+            } else {
+                DEBUG_PRINT("[COMM] Not UDS_PATH mode, skipping group output\r\n");
+            }
+            
+            DEBUG_PRINT("[COMM] Group output preparation completed for %s\r\n", cfg->name);
+        } else {
+            DEBUG_PRINT("[COMM] Data type %d (%s) extraction FAILED (returned false)\r\n", i, cfg->name);
         }
+        
+        DEBUG_PRINT("[COMM] === Completed processing data type %d (%s) ===\r\n", i, cfg->name);
+    }
+    
+    DEBUG_PRINT("[COMM] === Loop completed, processed %d data types ===\r\n", DATA_TYPE_MAX);
+    
+    // 그룹화된 출력 표시
+    if (any_data_extracted && get_current_mode() == UDS_MODE_UDS_PATH && group_count > 0) {
+        all_printf("%s\r\n", group_output);
     }
     
     if (!any_data_extracted) {
@@ -144,7 +266,7 @@ void parse_data(uint8_t *complete_data, uint8_t data_length, data_type_t data_ty
         int dec_part = (int)((value - int_part) * 10);
         if (dec_part < 0) dec_part = -dec_part;
         
-        all_printf("[%s] %s: %.2f %s\r\n", 
+        all_printf("[%s] %s: %.1f %s\r\n", 
                   diag_db_get_vehicle_name(),
                   diag_db_get_data_type_name(data_type),
                   value,
@@ -170,18 +292,47 @@ void steering_data_handler(uint32_t can_id, uint8_t *data, uint8_t length)
     static uint8_t total_data_length = 0;  // 전체 데이터 길이
     static uint8_t collected_length = 0;   // 현재까지 수집된 데이터 길이
     
+    // 디버그: 수신된 데이터 상세 정보
+    // all_printf("[HANDLER] CAN ID: 0x%lX, Length: %d, Data: ", can_id, length);
+    // for (int i = 0; i < length; i++) {
+    //     all_printf("%02X ", data[i]);
+    // }
+    // all_printf("\r\n");
     
     if (length < 1) {
+        DEBUG_PRINT("[HANDLER] Invalid length\r\n");
         return;
     }
     
     uint8_t pci = data[0]; // Protocol Control Information
-    uint8_t frame_type = (pci >> 4) & 0x0F;
+    uint8_t frame_type = (pci >> 4) & 0x0F;    
     
     switch (frame_type) {
+        case 0x0: // Single Frame (완전한 데이터가 한 프레임에 포함)
+        {
+            uint8_t sf_length = pci & 0x0F;
+            DEBUG_PRINT("[HANDLER] Single Frame detected, length: %d\r\n", sf_length);
+            
+            if (sf_length > 0 && (sf_length + 1) <= length) {
+                // 단일 프레임 데이터를 바로 파싱
+                // data[0] = PCI, data[1]부터 실제 UDS 데이터
+                uint8_t *uds_data = &data[1];
+                uint8_t uds_length = sf_length;
+                
+                DEBUG_PRINT("[HANDLER] Parsing single frame data...\r\n");
+                parse_multiple_data(uds_data, uds_length, can_id);
+            } else {
+                DEBUG_PRINT("[HANDLER] Invalid single frame length\r\n");
+            }
+            break;
+        }
+        
         case 0x1: // First Frame (Multi-frame 시작)
         {
-            if (length < 3) break;
+            if (length < 3) {
+                DEBUG_PRINT("[HANDLER] First frame too short\r\n");
+                break;
+            }
             
             // 전체 데이터 길이 추출
             total_data_length = ((pci & 0x0F) << 8) | data[1];
@@ -214,8 +365,8 @@ void steering_data_handler(uint32_t can_id, uint8_t *data, uint8_t length)
                     // 버퍼 초기화
                     memset(multi_frame_buffer, 0, sizeof(multi_frame_buffer));
                     
-                    // First frame의 데이터 부분 저장 (인덱스 5부터: Service ID + DID2 Byte 뒤 실제 Data부터 저장)
-                    for (int i = 5; i < length && collected_length < sizeof(multi_frame_buffer); i++) {
+                    // First frame의 전체 UDS 데이터 저장 (인덱스 2부터: Service ID + DID + 실제 Data)
+                    for (int i = 2; i < length && collected_length < sizeof(multi_frame_buffer); i++) {
                         multi_frame_buffer[collected_length++] = data[i];
                     }
                 }
@@ -239,17 +390,21 @@ void steering_data_handler(uint32_t can_id, uint8_t *data, uint8_t length)
                 if (expected_sequence > 15) expected_sequence = 0; // 시퀀스 번호는 0-15 순환
                 
                 // 예상된 데이터 길이에 도달했는지 확인
-                if (collected_length >= (total_data_length - 3)) {  // -3: PCI(1) + Length(1) + Service까지 제외
+                if (collected_length >= total_data_length) {  // total_data_length는 순수 UDS 데이터 길이
+                    //all_printf("[HANDLER] Multi-frame complete, collected %d bytes\r\n", collected_length);
                     // 모든 데이터 수집 완료 - 해당 CAN ID의 모든 데이터 파싱 실행
                     parse_multiple_data(multi_frame_buffer, collected_length, can_id);
                     
                     // 수집 완료, 플래그 리셋
                     is_collecting = false;
                     collected_length = 0;
+                } else {
                 }
             } else {
                 // 시퀀스 오류 - 수집 중단
-                all_printf("[MULTI-FRAME] Sequence error: expected %d, got %d\r\n", expected_sequence, sequence_number);
+                DEBUG_PRINT("[MULTI-FRAME] Sequence error: expected %d, got %d\r\n", expected_sequence, sequence_number);
+                DEBUG_PRINT("[MULTI-FRAME] Possible causes: CAN frame lost, timing issue, or buffer overflow\r\n");
+                DEBUG_PRINT("[MULTI-FRAME] Resetting collection state\r\n");
                 is_collecting = false;
                 collected_length = 0;
             }
@@ -257,6 +412,7 @@ void steering_data_handler(uint32_t can_id, uint8_t *data, uint8_t length)
         }
         
         default:
+            DEBUG_PRINT("[HANDLER] Unknown frame type: 0x%X\r\n", frame_type);
             break;
     }
 }

@@ -13,11 +13,11 @@ firmware/stm32g4-fdcan/prj/stm32cubeide/Debug/
 software/fdcan-loader/build/
 firmware/stm32g4-fdcan/build/
 firmware/stm32g4-fdcan/prj/stm32cubeide/.settings/language.settings.xml
-firmware/stm32g4-fdcan-boot/prj/stm32cubeide/.settings/language.settings.xml
-firmware/stm32g4-fdcan-uds/prj/stm32cubeide/Debug/
+firmware/stm32g4-uds/prj/stm32cubeide/Debug/
+firmware/stm32g4-uds/build/
+firmware/stm32g4-uds/prj/stm32cubeide/.settings/language.settings.xml
+
 software/fdcan-loader/build/
-firmware/stm32g4-fdcan-uds/build/
-firmware/stm32g4-fdcan-uds/prj/stm32cubeide/.settings/language.settings.xml
 *.pyc
 config.ini
 can_send.csv

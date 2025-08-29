@@ -583,7 +583,8 @@ bool can_manager_init(bool tx_mode)
         DEBUG_PRINT("CAN mode: MONITOR (RX only)\r\n");
     }
     
-    if (canOpen(_DEF_CAN1, can_mode, CAN_FD_BRS, CAN_500K, CAN_2M) == false)
+    //if (canOpen(_DEF_CAN1, can_mode, CAN_FD_BRS, CAN_500K, CAN_2M) == false)
+    if (canOpen(_DEF_CAN1, can_mode, CAN_CLASSIC, CAN_500K, CAN_2M) == false)
     {
         DEBUG_PRINT("CAN init failed\r\n");
         return false;

@@ -18,8 +18,8 @@ typedef enum {
     DATA_TYPE_STEERING = 0,
     DATA_TYPE_SPEED = 1,
     DATA_TYPE_ENGINE_RPM = 2,
-    DATA_TYPE_THROTTLE = 3,
-    DATA_TYPE_BRAKE = 4,
+    DATA_TYPE_BATT_TEMP_1 = 3,
+    DATA_TYPE_BATT_TEMP_2 = 4,
     DATA_TYPE_MAX
 } data_type_t;
 
@@ -33,7 +33,7 @@ typedef struct {
     float    resolution;       // 분해능 (unit/LSB)
     int16_t  offset_value;     // 오프셋 값
     bool     is_signed;        // 부호 있는 데이터 여부
-    bool     is_big_endian;    // 빅엔디안 여부 (false = 리틀엔디안)
+    bool     big_end_msb_first;    // 빅엔디안 여부 (false = 리틀엔디안)
     uint32_t request_period_ms; // 요청 주기 (ms, 0=비활성화)
     char     unit[8];          // 단위 (예: "deg", "km/h", "rpm")
     char     name[16];         // 데이터 이름
@@ -74,6 +74,7 @@ extern uint8_t g_did_group_count;
 #define DIAG_DB_MAGIC           0x44494147  // "DIAG"
 #define DIAG_DB_VERSION         0x0001
 #define DEFAULT_VEHICLE_NAME    "SONATA_DN8_HME"
+#define EV_VEHICLE_NAME     "IONIC5_NE_HMC"
 
 // DIAG_DB 초기화 및 관리 함수들
 void diag_db_init(void);
@@ -94,7 +95,7 @@ bool diag_db_enable_data_type(data_type_t type, bool enable);
 bool diag_db_set_did(data_type_t type, uint16_t did);
 bool diag_db_set_request_id(data_type_t type, uint32_t request_id);
 bool diag_db_set_data_params(data_type_t type, uint8_t offset, uint8_t length, float resolution, int16_t offset_value);
-bool diag_db_set_data_format(data_type_t type, bool is_signed, bool is_big_endian);
+bool diag_db_set_data_format(data_type_t type, bool is_signed, bool big_end_msb_first);
 bool diag_db_set_data_info(data_type_t type, const char* name, const char* unit);
 bool diag_db_set_request_period(data_type_t type, uint32_t period_ms);
 

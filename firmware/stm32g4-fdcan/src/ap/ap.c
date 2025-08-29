@@ -14,7 +14,7 @@ bool is_can_mode = true;  // 간단한 CAN 모드
 // TX 테스트용 보드: #define CAN_TEST_MODE_TX true
 // RX 테스트용 보드: #define CAN_TEST_MODE_TX false  
 // ===============================================
-#define CAN_TEST_MODE_TX    false   // true: TX 송신 모드, false: RX 수신 모드
+#define CAN_TEST_MODE_TX    true   // true: TX 송신 모드, false: RX 수신 모드
 bool can_test_tx_mode = CAN_TEST_MODE_TX;
 
 // CAN 모드 설정

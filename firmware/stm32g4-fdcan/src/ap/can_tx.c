@@ -1,6 +1,7 @@
 #include "can_tx.h"
 #include "can_manager.h"
 #include "can_db.h"
+#include "uds_handler.h"
 
 // DEBUG 출력 매크로
 #if DEBUG_CAN_PROTOCOL
@@ -117,12 +118,20 @@ static uint32_t tx_fail_count = 0;
 // CAN TX 초기화
 bool can_tx_init(void)
 {
-    DEBUG_PRINT("CAN TEST MODE: TX (Transmitter)\r\n");
+    DEBUG_PRINT("CAN TEST MODE: TX (Transmitter) with UDS Support\r\n");
     DEBUG_PRINT("Will send %d sample CAN FD messages every 10ms\r\n", SAMPLE_MSG_COUNT);
+    DEBUG_PRINT("UDS Request: 0x7D4 | 03 22 01 01 55 55 55 55\r\n");
+    DEBUG_PRINT("UDS Response: 0x7DC | Multi-frame sequence\r\n");
     
     tx_time = millis();
     tx_counter = 0;
     tx_fail_count = 0;
+    
+    // UDS 핸들러 초기화
+    if (!uds_init()) {
+        DEBUG_PRINT("UDS initialization failed\r\n");
+        return false;
+    }
     
     return true;
 }
@@ -130,7 +139,22 @@ bool can_tx_init(void)
 // CAN TX 처리
 void can_tx_process(void)
 {
-    if (millis() - tx_time >= 100)  // 100ms마다 송신 (순서 확인용)
+    // UDS 핸들러 처리 (우선순위가 높음)
+    uds_process();
+    
+    // CAN RX 메시지 확인 및 UDS 처리
+    if (canMsgAvailable(_DEF_CAN1))
+    {
+        can_msg_t rx_msg;
+        if (canMsgRead(_DEF_CAN1, &rx_msg))
+        {
+            can_tx_handle_rx_message(&rx_msg);
+            ledToggle(HW_LED_CH_RX);
+        }
+    }
+    
+    // UDS가 활성화되어 있지 않을 때만 샘플 메시지 송신
+    if (!uds_is_active() && millis() - tx_time >= 100)  // 100ms마다 송신 (순서 확인용)
     {
         tx_time = millis();
         
@@ -143,45 +167,73 @@ void can_tx_process(void)
         tx_msg.id = sample->id;
         
         // 샘플 데이터 복사 (카운터 추가로 변화 표시)
-        uint8_t data_length = canGetLen(sample->dlc);
-        for (int i = 0; i < data_length; i++)
+        uint8_t data_length = 0;//canGetLen(sample->dlc);
+        if (data_length > 0)
         {
-            if (i < 4)  // 처음 4바이트에 변화하는 데이터 추가
+            for (int i = 0; i < data_length; i++)
             {
-                tx_msg.data[i] = sample->data[i];// ^ (tx_counter & 0xFF);
+                if (i < 4)  // 처음 4바이트에 변화하는 데이터 추가
+                {
+                    tx_msg.data[i] = sample->data[i];// ^ (tx_counter & 0xFF);
+                }
+                else
+                {
+                    tx_msg.data[i] = sample->data[i];
+                }
+            }
+            
+            if (canMsgWrite(_DEF_CAN1, &tx_msg, 10))
+            {
+                DEBUG_PRINT("CAN TX [%lu/%d]: ID=0x%03lX, DLC=%d, Data=", 
+                        msg_index + 1, SAMPLE_MSG_COUNT, tx_msg.id, data_length);
+                for (int i = 0; i < data_length; i++)
+                {
+                    DEBUG_PRINT("%02X ", tx_msg.data[i]);
+                }
+                DEBUG_PRINT("(Total=%lu)\r\n", tx_counter);
+                ledToggle(HW_LED_CH_TX);
+                tx_fail_count = 0; // 송신 성공 시 실패 카운터 리셋
             }
             else
             {
-                tx_msg.data[i] = sample->data[i];
-            }
-        }
-        
-        if (canMsgWrite(_DEF_CAN1, &tx_msg, 10))
-        {
-            DEBUG_PRINT("CAN TX [%lu/%d]: ID=0x%03lX, DLC=%d, Data=", 
-                       msg_index + 1, SAMPLE_MSG_COUNT, tx_msg.id, data_length);
-            for (int i = 0; i < data_length; i++)
-            {
-                DEBUG_PRINT("%02X ", tx_msg.data[i]);
-            }
-            DEBUG_PRINT("(Total=%lu)\r\n", tx_counter);
-            ledToggle(HW_LED_CH_TX);
-            tx_fail_count = 0; // 송신 성공 시 실패 카운터 리셋
-        }
-        else
-        {
-            tx_fail_count++;
-            DEBUG_PRINT("CAN TX Failed! ID=0x%03lX (Fail count: %lu)\r\n", sample->id, tx_fail_count);
-            
-            // 연속 실패 시 복구 시도
-            if (tx_fail_count >= 3)
-            {
-                DEBUG_PRINT("Multiple TX failures detected. Attempting CAN recovery...\r\n");
-                can_error_recovery();
-                tx_fail_count = 0;
+                tx_fail_count++;
+                DEBUG_PRINT("CAN TX Failed! ID=0x%03lX (Fail count: %lu)\r\n", sample->id, tx_fail_count);
+                
+                // 연속 실패 시 복구 시도
+                if (tx_fail_count >= 3)
+                {
+                    DEBUG_PRINT("Multiple TX failures detected. Attempting CAN recovery...\r\n");
+                    can_error_recovery();
+                    tx_fail_count = 0;
+                }
             }
         }
         
         tx_counter++;
     }
+}
+
+// CAN RX 메시지 처리 (UDS 용)
+void can_tx_handle_rx_message(const can_msg_t *msg)
+{
+    DEBUG_PRINT("[RX] ID=0x%03lX, DLC=%d, Data=", msg->id, msg->length);
+    for (int i = 0; i < msg->length && i < 8; i++) {
+        DEBUG_PRINT("%02X ", msg->data[i]);
+    }
+    DEBUG_PRINT("\r\n");
+    
+    // UDS 요청 처리
+    if (uds_handle_request(msg)) {
+        DEBUG_PRINT("[TX] UDS request handled successfully\r\n");
+        return;
+    }
+    
+    // UDS Flow Control 처리
+    if (uds_check_flow_control(msg)) {
+        DEBUG_PRINT("[TX] UDS Flow Control handled successfully\r\n");
+        return;
+    }
+    
+    // 기타 메시지는 로그만 출력
+    DEBUG_PRINT("[TX] Message not UDS-related\r\n");
 }

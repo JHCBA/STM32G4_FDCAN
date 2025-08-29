@@ -2,6 +2,15 @@
 #include "cli.h"
 #include "ap.h"
 
+// DEBUG 출력 매크로
+#define DEBUG_CAN_PROTOCOL  0  // 1: 활성화, 0: 비활성화
+
+#if DEBUG_CAN_PROTOCOL
+#define DEBUG_PRINT(fmt, ...) all_printf(fmt, ##__VA_ARGS__)
+#else
+#define DEBUG_PRINT(fmt, ...) do {} while(0)
+#endif
+
 // UDS 관련 상수 정의
 #define UDS_FUNCTIONAL_ID    0x7DF  // UDS 기능적 요청 ID
 #define UDS_PHYSICAL_ID      0x7E0  // UDS 물리적 요청 ID (예시)
@@ -85,7 +94,7 @@ void uds_rx_process(void)
             
             // 추가 디버깅: 수신 카운터 표시
             if (uds_message_count % 10 == 1) {  // 매 10번째 메시지마다
-                all_printf("[DEBUG] Total RX: %lu messages\r\n", uds_message_count);
+                //all_printf("[DEBUG] Total RX: %lu messages\r\n", uds_message_count);
             }
         }
     }
@@ -292,8 +301,9 @@ void can_error_recovery(void)
 // ISO-TP 자동 Flow Control 처리 함수
 void uds_auto_flow_control(can_msg_t *rx_msg)
 {
-    // TALK 모드에서만 자동 Flow Control 동작
-    if (get_current_mode() != UDS_MODE_TALK) {
+    // TALK 모드와 UDS_PATH 모드에서 자동 Flow Control 동작
+    uds_mode_t current_mode = get_current_mode();
+    if (current_mode != UDS_MODE_TALK && current_mode != UDS_MODE_UDS_PATH) {
         return;
     }
     
@@ -306,9 +316,7 @@ void uds_auto_flow_control(can_msg_t *rx_msg)
     if (frame_type == 0x1) {
         // 전체 데이터 길이 확인
         uint16_t total_length = ((pci & 0x0F) << 8) | rx_msg->data[1];
-        
-        all_printf("[AUTO FC] First Frame detected: Total %d bytes\r\n", total_length);
-        
+
         // 모든 UDS 응답에 대해 Flow Control 전송 (길이가 8바이트를 초과하는 경우)
         if (rx_msg->length >= 3 && total_length > 7) {
             // Flow Control 메시지 구성
@@ -334,11 +342,17 @@ void uds_auto_flow_control(can_msg_t *rx_msg)
             flow_control_msg.data[7] = 0x00;  // 패딩
             
             // Flow Control 전송
-            all_printf("[AUTO FC] Sending Flow Control: 30 00 00 (CTS)\r\n");
             if (canMsgWrite(_DEF_CAN1, &flow_control_msg, 100)) {
-                all_printf("[AUTO FC] Flow Control sent to ID: 0x%lX\r\n", tx_id);
+                
+                // 전송된 데이터를 상세 출력
+                    // all_printf("[AUTO FC] TX Data: ");
+                    // for (int i = 0; i < flow_control_msg.length; i++) {
+                    //     all_printf("%02X ", flow_control_msg.data[i]);
+                    // }
+                    // all_printf("\r\n");
             } else {
-                all_printf("[AUTO FC] Flow Control send failed!\r\n");
+                DEBUG_PRINT("[AUTO FC] Flow Control send failed! (Mode: %s)\r\n", 
+                           current_mode == UDS_MODE_TALK ? "TALK" : "UDS_PATH");
             }
         }
     }
