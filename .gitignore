@@ -9,6 +9,13 @@ install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
 _deps
+# STM32CubeIDE build outputs
+**/Debug/
+**/Release/
+**/build/
+**/.settings/language.settings.xml
+
+# 기존 특정 경로들 (하위 호환성)
 firmware/stm32g4-fdcan/prj/stm32cubeide/Debug/
 software/fdcan-loader/build/
 firmware/stm32g4-fdcan/build/
@@ -16,8 +23,6 @@ firmware/stm32g4-fdcan/prj/stm32cubeide/.settings/language.settings.xml
 firmware/stm32g4-uds/prj/stm32cubeide/Debug/
 firmware/stm32g4-uds/build/
 firmware/stm32g4-uds/prj/stm32cubeide/.settings/language.settings.xml
-
-software/fdcan-loader/build/
 *.pyc
 config.ini
 can_send.csv

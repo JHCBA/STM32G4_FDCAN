@@ -1,7 +1,0 @@
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/common/hw/src/mini-printf.c:99:1:mini_pad	20	static
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/common/hw/src/mini-printf.c:130:1:_puts	20	static
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/common/hw/src/mini-printf.c:58:1:mini_itoa.part.0	20	static
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/common/hw/src/mini-printf.c:179:1:mini_vpprintf	112	static
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/common/hw/src/mini-printf.c:164:1:mini_vsnprintf	24	static
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/common/hw/src/mini-printf.c:292:1:mini_snprintf	16	static
-C:/Users/jhcho/Desktop/GITHUB/STM32G4_FDCAN/firmware/stm32g4-uds/src/common/hw/src/mini-printf.c:304:1:mini_pprintf	16	static
