@@ -9,10 +9,26 @@
 #define DEBUG_CAN_PROTOCOL  0  // 1: 활성화, 0: 비활성화
 
 #if DEBUG_CAN_PROTOCOL
-#define DEBUG_PRINT(fmt, ...) all_printf(fmt, ##__VA_ARGS__)
+#define DEBUG_PRINT(fmt, ...) cdc_printf(fmt, ##__VA_ARGS__)
 #else
 #define DEBUG_PRINT(fmt, ...) do {} while(0)
 #endif
+
+// CAN ID to Protocol ID 매핑 테이블
+// 필터링된 CAN ID들을 순서대로 프로토콜 Data ID로 매핑
+static const can_to_protocol_map_t can_protocol_map[] = {
+    {DATA_TYPE_SPEED,       PROTOCOL_ID_VEHICLE_SPEED},   // Vehicle Speed
+    {0xFF,                  PROTOCOL_ID_BPS},             // APS  
+    {0xFF,                  PROTOCOL_ID_APS},             // BPS
+    {DATA_TYPE_STEERING,    PROTOCOL_ID_STEERING_ANGLE},  // Steering Angle
+    {0xFF,                  PROTOCOL_ID_EPS_ERR},         // EPS Error
+    {0xFF,                  PROTOCOL_ID_GEAR},            // Gear Status
+    {0xFF,                  PROTOCOL_ID_TURN_SIGNAL},     // Turn Signal
+    {0xFF,                  PROTOCOL_ID_DOOR_OPEN},       // Door Open
+    {0xFF,                  PROTOCOL_ID_SEAT_BELT},       // Seat Belt
+    {0xFF,                  PROTOCOL_ID_RADAR},           // Radar
+    {DATA_TYPE_BATT_TEMP_1, PROTOCOL_ID_BMS},             // BMS
+};
 
 // 간단한 UART 출력 함수
 void uart_printf(const char *fmt, ...)
@@ -24,7 +40,7 @@ void uart_printf(const char *fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
-    uartPrintf(HW_UART_CH_DEBUG, buf);
+    uartPrintf(HW_UART_CH_EXT, buf);
 }
 
 // USB CDC 출력 함수
@@ -42,7 +58,7 @@ void cdc_printf(const char *fmt, ...)
     }
 }
 
-// 모든 채널로 출력하는 함수
+// 모든 채널로 출력하는 함수 (HW_UART_CH_EXT 제외 - 프로토콜 전용)
 void all_printf(const char *fmt, ...)
 {
     char buf[256];
@@ -52,9 +68,9 @@ void all_printf(const char *fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
-    // 물리적 UART로 출력
+    // 물리적 UART로 출력 (EXT 제외 - 프로토콜 전용으로 사용)
     uartPrintf(HW_UART_CH_DEBUG, buf);    
-    uartPrintf(HW_UART_CH_EXT, buf);
+    // uartPrintf(HW_UART_CH_EXT, buf);  // 제거: 프로토콜 전용 채널
 
     // USB CDC로도 출력
     if (cdcIsConnect()) {
@@ -70,11 +86,11 @@ void uds_debug_output(uint32_t can_id, uint8_t *data, uint8_t length)
     
     if (mode == UDS_MODE_TALK) {
         // TALK 모드: 간단한 RX 메시지 출력
-        all_printf("[RX] ID: 0x%lX | Length: %d | Data: ", can_id, length);
+        cdc_printf("[RX] ID: 0x%lX | Length: %d | Data: ", can_id, length);
         for (int i = 0; i < length; i++) {
-            all_printf("%02X ", data[i]);
+            cdc_printf("%02X ", data[i]);
         }
-        all_printf("\r\n");
+        cdc_printf("\r\n");
     }
     
     // UDS_PATH 모드에서는 활성화된 데이터 타입들 처리
@@ -130,11 +146,13 @@ void parse_multiple_data(uint8_t *complete_data, uint8_t data_length, uint32_t c
             DEBUG_PRINT("[COMM] Data type %d (%s) extraction SUCCESS, value=%.1f\r\n", i, cfg->name, value);
             any_data_extracted = true;
             
-            // 스티어링 데이터는 UART로 스티어링 컬럼에 전송
-            if (i == DATA_TYPE_STEERING) {
-                char steering_msg[32];
-                snprintf(steering_msg, sizeof(steering_msg), "%.1f\r\n", value);
-                uartPrintf(HW_UART_CH_EXT, steering_msg);
+            // 프로토콜 매핑 테이블에서 해당 데이터 타입의 프로토콜 ID 찾기
+            for (int j = 0; j < sizeof(can_protocol_map) / sizeof(can_protocol_map[0]); j++) {
+                if (can_protocol_map[j].data_type == i) {
+                    // 매핑된 프로토콜 ID로 패킷 전송
+                    send_protocol_packet(can_protocol_map[j].data_id, value);
+                    break;
+                }
             }
             
             // Speed 데이터도 출력
@@ -233,51 +251,95 @@ void parse_multiple_data(uint8_t *complete_data, uint8_t data_length, uint32_t c
     
     // 그룹화된 출력 표시
     if (any_data_extracted && get_current_mode() == UDS_MODE_UDS_PATH && group_count > 0) {
-        all_printf("%s\r\n", group_output);
+        cdc_printf("%s\r\n", group_output);
     }
     
     if (!any_data_extracted) {
-        all_printf("[PARSE] No valid data extracted from CAN ID 0x%lX\r\n", can_id);
+        cdc_printf("[PARSE] No valid data extracted from CAN ID 0x%lX\r\n", can_id);
     }
 }
+// 프로토콜 관련 함수들
 
-// 단일 데이터 파싱 (기존 호환성)
-void parse_data(uint8_t *complete_data, uint8_t data_length, data_type_t data_type)
+// 체크섬 계산 함수 (ID부터 Data까지의 Sum 연산 하위 1바이트)
+uint8_t calculate_checksum(uint8_t data_id, uint8_t length, uint8_t *data)
 {
-    // DIAG_DB를 사용하여 데이터 추출
-    float value = 0.0f;
+    uint32_t sum = data_id + length;
     
-    if (!diag_db_extract_data_value(data_type, complete_data, data_length, &value)) {
-        all_printf("[%s] Failed to extract data\r\n", diag_db_get_data_type_name(data_type));
-        return;
+    for (int i = 0; i < length; i++) {
+        sum += data[i];
     }
     
-    // 스티어링 데이터는 UART로 스티어링 컬럼에 전송
-    if (data_type == DATA_TYPE_STEERING) {
-        char steering_msg[32];
-        snprintf(steering_msg, sizeof(steering_msg), "%.1f\r\n", value);
-        uartPrintf(HW_UART_CH_EXT, steering_msg);
-    }
-    
-    // UDS_PATH 모드에서만 상세 확인 메시지
-    if (get_current_mode() == UDS_MODE_UDS_PATH) {
-        // 데이터 값 표시 (정수.소수 형태)
-        int int_part = (int)value;
-        int dec_part = (int)((value - int_part) * 10);
-        if (dec_part < 0) dec_part = -dec_part;
-        
-        all_printf("[%s] %s: %.1f %s\r\n", 
-                  diag_db_get_vehicle_name(),
-                  diag_db_get_data_type_name(data_type),
-                  value,
-                  g_vehicle_settings.data_configs[data_type].unit);
-    }
+    return (uint8_t)(sum & 0xFF);  // 하위 1바이트만 반환
 }
 
-// 기존 호환성을 위한 함수
-void parse_steering_data(uint8_t *complete_data, uint8_t data_length)
+// 프로토콜 패킷 생성 및 UART 전송 함수
+void send_protocol_packet(protocol_data_id_t data_id, float value)
 {
-    parse_data(complete_data, data_length, DATA_TYPE_STEERING);
+    protocol_packet_t packet;
+    uint8_t uart_buffer[16];  // 최대 패킷 크기
+    uint8_t packet_size = 0;
+    
+    // 패킷 구성
+    packet.stx = PROTOCOL_STX;
+    packet.data_id = (uint8_t)data_id;
+    
+    // 데이터 타입에 따른 데이터 변환
+    if (data_id == PROTOCOL_ID_STEERING_ANGLE) {
+        // 스티어링: float을 2바이트 signed int로 변환 (0.1도 단위)
+        int16_t steering_int = (int16_t)(value * 10);
+        packet.length = 2;
+        packet.data[0] = (uint8_t)(steering_int >> 8);     // High byte
+        packet.data[1] = (uint8_t)(steering_int & 0xFF);   // Low byte
+    }
+    else if (data_id == PROTOCOL_ID_VEHICLE_SPEED) {
+        // 속도: float을 2바이트 unsigned int로 변환 (0.1km/h 단위)
+        uint16_t speed_int = (uint16_t)(value * 10);
+        packet.length = 2;
+        packet.data[0] = (uint8_t)(speed_int >> 8);        // High byte
+        packet.data[1] = (uint8_t)(speed_int & 0xFF);      // Low byte
+    }
+    else {
+        // 기타 데이터: 4바이트 float로 전송
+        packet.length = 4;
+        uint32_t *float_ptr = (uint32_t*)&value;
+        packet.data[0] = (uint8_t)((*float_ptr) >> 24);
+        packet.data[1] = (uint8_t)((*float_ptr) >> 16);
+        packet.data[2] = (uint8_t)((*float_ptr) >> 8);
+        packet.data[3] = (uint8_t)((*float_ptr) & 0xFF);
+    }
+    
+    // 체크섬 계산
+    packet.checksum = calculate_checksum(packet.data_id, packet.length, packet.data);
+    packet.etx = PROTOCOL_ETX;
+    
+    // UART 버퍼에 패킷 데이터 복사
+    uart_buffer[packet_size++] = packet.stx;
+    uart_buffer[packet_size++] = packet.data_id;
+    uart_buffer[packet_size++] = packet.length;
+    
+    for (int i = 0; i < packet.length; i++) {
+        uart_buffer[packet_size++] = packet.data[i];
+    }
+    
+    uart_buffer[packet_size++] = packet.checksum;
+    uart_buffer[packet_size++] = packet.etx;
+    
+    // UART로 패킷 전송
+    uint32_t bytes_sent = uartWrite(HW_UART_CH_EXT, uart_buffer, packet_size);
+    
+    // 디버그 출력 (CDC) - 전송된 전체 패킷 표시
+    cdc_printf("[PROTOCOL TX] ID:0x%02X Len:%d Data:", packet.data_id, packet.length);
+    for (int i = 0; i < packet.length; i++) {
+        cdc_printf(" %02X", packet.data[i]);
+    }
+    cdc_printf(" Checksum:0x%02X\r\n", packet.checksum);
+    
+    // 실제 전송된 바이트 표시
+    cdc_printf("[UART RAW TX] Sent %lu bytes: ", bytes_sent);
+    for (int i = 0; i < packet_size; i++) {
+        cdc_printf("%02X ", uart_buffer[i]);
+    }
+    cdc_printf("\r\n");
 }
 
 // 스티어링 데이터 처리 함수 (개선됨: 완전한 데이터 수집 후 파싱)
@@ -293,11 +355,11 @@ void steering_data_handler(uint32_t can_id, uint8_t *data, uint8_t length)
     static uint8_t collected_length = 0;   // 현재까지 수집된 데이터 길이
     
     // 디버그: 수신된 데이터 상세 정보
-    // all_printf("[HANDLER] CAN ID: 0x%lX, Length: %d, Data: ", can_id, length);
+    // cdc_printf("[HANDLER] CAN ID: 0x%lX, Length: %d, Data: ", can_id, length);
     // for (int i = 0; i < length; i++) {
-    //     all_printf("%02X ", data[i]);
+    //     cdc_printf("%02X ", data[i]);
     // }
-    // all_printf("\r\n");
+    // cdc_printf("\r\n");
     
     if (length < 1) {
         DEBUG_PRINT("[HANDLER] Invalid length\r\n");
@@ -391,7 +453,7 @@ void steering_data_handler(uint32_t can_id, uint8_t *data, uint8_t length)
                 
                 // 예상된 데이터 길이에 도달했는지 확인
                 if (collected_length >= total_data_length) {  // total_data_length는 순수 UDS 데이터 길이
-                    //all_printf("[HANDLER] Multi-frame complete, collected %d bytes\r\n", collected_length);
+                    //cdc_printf("[HANDLER] Multi-frame complete, collected %d bytes\r\n", collected_length);
                     // 모든 데이터 수집 완료 - 해당 CAN ID의 모든 데이터 파싱 실행
                     parse_multiple_data(multi_frame_buffer, collected_length, can_id);
                     

@@ -6,7 +6,7 @@
 #define DEBUG_CAN_PROTOCOL  0  // 1: 활성화, 0: 비활성화
 
 #if DEBUG_CAN_PROTOCOL
-#define DEBUG_PRINT(fmt, ...) all_printf(fmt, ##__VA_ARGS__)
+#define DEBUG_PRINT(fmt, ...) cdc_printf(fmt, ##__VA_ARGS__)
 #else
 #define DEBUG_PRINT(fmt, ...) do {} while(0)
 #endif
@@ -44,14 +44,14 @@ bool can_manager_init(bool tx_mode)
     
     if (canOpen(_DEF_CAN1, can_mode, CAN_CLASSIC, CAN_500K, CAN_2M) == false)
     {
-        all_printf("UDS CAN init failed\r\n");
+        cdc_printf("UDS CAN init failed\r\n");
         return false;
     }
     
-    all_printf("UDS CAN initialized: 500K/2M, CAN-FD BRS\r\n");
-    all_printf("UDS Mode: %s\r\n", tx_mode ? "RX/TX (TX Enabled)" : "RX Only");
-    all_printf("Monitoring All CAN IDs (including OEM specific IDs)\r\n");
-    all_printf("CAN Filter: Accept ALL messages for UDS debugging\r\n");
+    cdc_printf("UDS CAN initialized: 500K/2M, CAN-FD BRS\r\n");
+    cdc_printf("UDS Mode: %s\r\n", tx_mode ? "RX/TX (TX Enabled)" : "RX Only");
+    cdc_printf("Monitoring All CAN IDs (including OEM specific IDs)\r\n");
+    cdc_printf("CAN Filter: Accept ALL messages for UDS debugging\r\n");
     
 // CLI 명령어는 TALK 모드에서 직접 입력 방식으로 대체됨
     
@@ -94,7 +94,7 @@ void uds_rx_process(void)
             
             // 추가 디버깅: 수신 카운터 표시
             if (uds_message_count % 10 == 1) {  // 매 10번째 메시지마다
-                //all_printf("[DEBUG] Total RX: %lu messages\r\n", uds_message_count);
+                //cdc_printf("[DEBUG] Total RX: %lu messages\r\n", uds_message_count);
             }
         }
     }
@@ -104,7 +104,7 @@ void uds_rx_process(void)
     if (millis() - last_status_time >= 10000)
     {
         last_status_time = millis();
-        // all_printf("UDS Status: %lu messages received, last: %lu ms ago\r\n", 
+        // cdc_printf("UDS Status: %lu messages received, last: %lu ms ago\r\n", 
         //            uds_message_count, 
         //            last_uds_message_time > 0 ? (millis() - last_uds_message_time) : 0);
     }
@@ -132,7 +132,7 @@ void uds_print_message_info(uint32_t can_id, uint8_t *data, uint8_t length)
         msg_type = "Response";
     }
     
-    all_printf("[UDS INFO] Type: %s | ID: 0x%lX | Length: %d\r\n", msg_type, can_id, length);
+    cdc_printf("[UDS INFO] Type: %s | ID: 0x%lX | Length: %d\r\n", msg_type, can_id, length);
     
     // ISO-TP 프레임 타입 분석
     uint8_t frame_type = (pci >> 4) & 0x0F;
@@ -146,14 +146,14 @@ void uds_print_message_info(uint32_t can_id, uint8_t *data, uint8_t length)
             {
                 uint8_t service_id = data[1];
                 const char* service_name = uds_get_service_name(service_id);
-                all_printf("[ISO-TP] Single Frame | Length: %d | Service: 0x%02X (%s)\r\n", 
+                cdc_printf("[ISO-TP] Single Frame | Length: %d | Service: 0x%02X (%s)\r\n", 
                           sf_length, service_id, service_name);
                 
                 // DID 정보 표시 (Read DID 서비스인 경우)
                 if (service_id == 0x22 && length >= 4)
                 {
                     uint16_t did = (data[2] << 8) | data[3];
-                    all_printf("[UDS DID] Read Data Identifier: 0x%04X\r\n", did);
+                    cdc_printf("[UDS DID] Read Data Identifier: 0x%04X\r\n", did);
                 }
             }
                         break;
@@ -165,20 +165,20 @@ void uds_print_message_info(uint32_t can_id, uint8_t *data, uint8_t length)
             {
                 uint8_t service_id = data[2];
                 const char* service_name = uds_get_service_name(service_id);
-                all_printf("[ISO-TP] First Frame | Total Length: %d bytes | Service: 0x%02X (%s)\r\n", 
+                cdc_printf("[ISO-TP] First Frame | Total Length: %d bytes | Service: 0x%02X (%s)\r\n", 
                           ff_length, service_id, service_name);
                 
                 // 응답 서비스인 경우 (0x40 이상)
                 if (service_id >= 0x40 && service_id <= 0x7F)
                 {
                     uint8_t original_service = service_id - 0x40;
-                    all_printf("[UDS RESPONSE] Positive Response to Service: 0x%02X\r\n", original_service);
+                    cdc_printf("[UDS RESPONSE] Positive Response to Service: 0x%02X\r\n", original_service);
                     
                     // DID 응답인 경우
                     if (original_service == 0x22 && length >= 5)
                     {
                         uint16_t did = (data[3] << 8) | data[4];
-                        all_printf("[UDS DID] Response for DID: 0x%04X | Remaining: %d bytes\r\n", 
+                        cdc_printf("[UDS DID] Response for DID: 0x%04X | Remaining: %d bytes\r\n", 
                                   did, ff_length - 3);
                     }
                 }
@@ -188,7 +188,7 @@ void uds_print_message_info(uint32_t can_id, uint8_t *data, uint8_t length)
         case 0x2:  // Consecutive Frame
         {
             uint8_t sequence_number = pci & 0x0F;
-            all_printf("[ISO-TP] Consecutive Frame | Sequence: %d | Data: 7 bytes\r\n", sequence_number);
+            cdc_printf("[ISO-TP] Consecutive Frame | Sequence: %d | Data: 7 bytes\r\n", sequence_number);
             break;
         }
         case 0x3:  // Flow Control Frame
@@ -201,11 +201,11 @@ void uds_print_message_info(uint32_t can_id, uint8_t *data, uint8_t length)
                 case 1: flow_type = "Wait (WT)"; break;
                 case 2: flow_type = "Overflow (OVFLW)"; break;
             }
-            all_printf("[ISO-TP] Flow Control | Status: %s\r\n", flow_type);
+            cdc_printf("[ISO-TP] Flow Control | Status: %s\r\n", flow_type);
             break;
         }
         default:
-            all_printf("[ISO-TP] Unknown Frame Type: 0x%X\r\n", frame_type);
+            cdc_printf("[ISO-TP] Unknown Frame Type: 0x%X\r\n", frame_type);
                 break;
             }
         }
@@ -270,7 +270,7 @@ void can_error_check(void)
         // 에러 카운터 증가 감지
         if (tx_err_count != last_tx_err_count || rx_err_count != last_rx_err_count)
         {
-            all_printf("UDS CAN Error: TX=%d, RX=%d, Code=0x%08lX\r\n", 
+            cdc_printf("UDS CAN Error: TX=%d, RX=%d, Code=0x%08lX\r\n", 
                       tx_err_count, rx_err_count, can_error);
             last_tx_err_count = tx_err_count;
             last_rx_err_count = rx_err_count;
@@ -279,7 +279,7 @@ void can_error_check(void)
         // Bus-Off 또는 Error Passive 상태 감지 시 복구 시도
         if (can_error & (CAN_ERR_BUS_OFF | CAN_ERR_PASSIVE))
         {
-            all_printf("UDS CAN Error detected! Attempting recovery...\r\n");
+            cdc_printf("UDS CAN Error detected! Attempting recovery...\r\n");
                 can_error_recovery();
         }
     }
@@ -288,14 +288,14 @@ void can_error_check(void)
 // CAN 에러 복구
 void can_error_recovery(void)
 {
-    all_printf("Performing UDS CAN recovery...\r\n");
+    cdc_printf("Performing UDS CAN recovery...\r\n");
     
     canRecovery(_DEF_CAN1);
     
     // 복구 후 잠시 대기
     delay(10);
     
-    all_printf("UDS CAN recovery completed\r\n");
+    cdc_printf("UDS CAN recovery completed\r\n");
 }
 
 // ISO-TP 자동 Flow Control 처리 함수
@@ -345,11 +345,11 @@ void uds_auto_flow_control(can_msg_t *rx_msg)
             if (canMsgWrite(_DEF_CAN1, &flow_control_msg, 100)) {
                 
                 // 전송된 데이터를 상세 출력
-                    // all_printf("[AUTO FC] TX Data: ");
+                    // cdc_printf("[AUTO FC] TX Data: ");
                     // for (int i = 0; i < flow_control_msg.length; i++) {
-                    //     all_printf("%02X ", flow_control_msg.data[i]);
+                    //     cdc_printf("%02X ", flow_control_msg.data[i]);
                     // }
-                    // all_printf("\r\n");
+                    // cdc_printf("\r\n");
             } else {
                 DEBUG_PRINT("[AUTO FC] Flow Control send failed! (Mode: %s)\r\n", 
                            current_mode == UDS_MODE_TALK ? "TALK" : "UDS_PATH");

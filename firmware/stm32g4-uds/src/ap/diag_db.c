@@ -8,7 +8,7 @@
 #define DEBUG_CAN_PROTOCOL  0  // 1: 활성화, 0: 비활성화
 
 #if DEBUG_CAN_PROTOCOL
-#define DEBUG_PRINT(fmt, ...) all_printf(fmt, ##__VA_ARGS__)
+#define DEBUG_PRINT(fmt, ...) cdc_printf(fmt, ##__VA_ARGS__)
 #else
 #define DEBUG_PRINT(fmt, ...) do {} while(0)
 #endif
