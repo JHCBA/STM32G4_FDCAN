@@ -73,8 +73,9 @@ extern uint8_t g_did_group_count;
 // 기본 설정값들
 #define DIAG_DB_MAGIC           0x44494147  // "DIAG"
 #define DIAG_DB_VERSION         0x0001
-#define DEFAULT_VEHICLE_NAME    "SONATA_DN8_HME"
 #define EV_VEHICLE_NAME     "IONIC5_NE_HMC"
+#define DN8_VEHICLE_NAME    "SONATA_DN8_HME"
+#define DEFAULT_VEHICLE_NAME    EV_VEHICLE_NAME
 
 // DIAG_DB 초기화 및 관리 함수들
 void diag_db_init(void);

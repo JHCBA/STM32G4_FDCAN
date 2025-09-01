@@ -89,7 +89,7 @@ void diag_db_load_defaults(void)
     rpm->offset_value = 0;
     rpm->is_signed = false;
     rpm->big_end_msb_first = true;
-    rpm->request_period_ms = 500;       // 500ms 주기
+    rpm->request_period_ms = 1000;       // 500ms 주기
     strncpy(rpm->unit, "rpm", sizeof(rpm->unit) - 1);
     strncpy(rpm->name, "EngineRPM", sizeof(rpm->name) - 1);
     
@@ -104,7 +104,7 @@ void diag_db_load_defaults(void)
     batt_temp_1->offset_value = 0;
     batt_temp_1->is_signed = true;
     batt_temp_1->big_end_msb_first = true;
-    batt_temp_1->request_period_ms = 500;       // 500ms 주기
+    batt_temp_1->request_period_ms = 1000;      // Steering과 동일한 주기
     strncpy(batt_temp_1->unit, "Celsius", sizeof(batt_temp_1->unit) - 1);
     strncpy(batt_temp_1->name, "BattTemp1", sizeof(batt_temp_1->name) - 1);
     
@@ -119,7 +119,7 @@ void diag_db_load_defaults(void)
     batt_temp_2->offset_value = 0;
     batt_temp_2->is_signed = true;
     batt_temp_2->big_end_msb_first = true;
-    batt_temp_2->request_period_ms = 500;       // 500ms 주기
+    batt_temp_2->request_period_ms = 1000;      // Steering과 동일한 주기
     strncpy(batt_temp_2->unit, "Celsius", sizeof(batt_temp_2->unit) - 1);
     strncpy(batt_temp_2->name, "BattTemp2", sizeof(batt_temp_2->name) - 1);
 
