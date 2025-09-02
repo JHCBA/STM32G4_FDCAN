@@ -22,6 +22,11 @@ void uds_auto_flow_control(can_msg_t *rx_msg);
 void can_error_check(void);
 void can_error_recovery(void);
 
+// ISO-TP 상태 관리 함수들
+bool can_manager_is_isotp_active(void);
+bool can_manager_get_isotp_data(uint32_t *can_id, uint8_t **data, uint16_t *length);
+void can_manager_reset_isotp_session(void);
+
 #ifdef __cplusplus
 }
 #endif

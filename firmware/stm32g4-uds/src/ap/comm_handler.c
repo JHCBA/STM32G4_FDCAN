@@ -15,19 +15,20 @@
 #endif
 
 // CAN ID to Protocol ID 매핑 테이블
-// 필터링된 CAN ID들을 순서대로 프로토콜 Data ID로 매핑
+// 새로운 데이터 타입들을 프로토콜 Data ID로 매핑
 static const can_to_protocol_map_t can_protocol_map[] = {
-    {DATA_TYPE_SPEED,       PROTOCOL_ID_VEHICLE_SPEED},   // Vehicle Speed
-    {0xFF,                  PROTOCOL_ID_BPS},             // APS  
-    {0xFF,                  PROTOCOL_ID_APS},             // BPS
-    {DATA_TYPE_STEERING,    PROTOCOL_ID_STEERING_ANGLE},  // Steering Angle
-    {0xFF,                  PROTOCOL_ID_EPS_ERR},         // EPS Error
-    {0xFF,                  PROTOCOL_ID_GEAR},            // Gear Status
-    {0xFF,                  PROTOCOL_ID_TURN_SIGNAL},     // Turn Signal
-    {0xFF,                  PROTOCOL_ID_DOOR_OPEN},       // Door Open
-    {0xFF,                  PROTOCOL_ID_SEAT_BELT},       // Seat Belt
-    {0xFF,                  PROTOCOL_ID_RADAR},           // Radar
-    {DATA_TYPE_BATT_TEMP_1, PROTOCOL_ID_BMS},             // BMS
+    {DATA_TYPE_STEERING_MDPS,    PROTOCOL_ID_STEERING_ANGLE},  // 스티어링 앵글
+    {DATA_TYPE_SPEED_MDPS,       PROTOCOL_ID_VEHICLE_SPEED},   // 차량 속도
+    {DATA_TYPE_APS_ECU,     PROTOCOL_ID_APS},             // ECU 엑셀 페달
+    {DATA_TYPE_BPS_ECU,     PROTOCOL_ID_BPS},             // ECU 브레이크 페달
+    {DATA_TYPE_APS_VCU,     PROTOCOL_ID_APS},             // VCU 엑셀 페달 (같은 프로토콜 ID)
+    {DATA_TYPE_BPS_ABS,     PROTOCOL_ID_BPS},             // VCU 브레이크 페달 (같은 프로토콜 ID)
+    {DATA_TYPE_GEAR_VCU,        PROTOCOL_ID_GEAR},            // 기어 상태
+    {DATA_TYPE_TURN_SIG_MFSW,    PROTOCOL_ID_TURN_SIGNAL},     // 방향지시등
+    {DATA_TYPE_DOOR_OPEN,   PROTOCOL_ID_DOOR_OPEN},       // 차량 문 열림
+    {DATA_TYPE_SEAT_BELT,   PROTOCOL_ID_SEAT_BELT},       // 안전벨트
+    {DATA_TYPE_RADAR,       PROTOCOL_ID_RADAR},           // 장애물 감지
+    {DATA_TYPE_BATT_TEMP_BMS,   PROTOCOL_ID_BMS},             // 배터리 온도 (BMS)
 };
 
 // 간단한 UART 출력 함수
@@ -95,9 +96,43 @@ void uds_debug_output(uint32_t can_id, uint8_t *data, uint8_t length)
     
     // UDS_PATH 모드에서는 활성화된 데이터 타입들 처리
     if (mode == UDS_MODE_UDS_PATH) {
+        // ISO-TP 완료된 멀티프레임 데이터 확인
+        extern bool can_manager_get_isotp_data(uint32_t *can_id, uint8_t **data, uint16_t *length);
+        uint32_t isotp_can_id;
+        uint8_t *isotp_data;
+        uint16_t isotp_length;
+        
+        if (can_manager_get_isotp_data(&isotp_can_id, &isotp_data, &isotp_length)) {
+            // ISO-TP 완료된 데이터 처리
+            // cdc_printf("[ISOTP COMPLETE] ID: 0x%lX | Length: %d | Data: ", isotp_can_id, isotp_length);
+            // for (int i = 0; i < isotp_length; i++) {
+            //     cdc_printf("%02X ", isotp_data[i]);
+            // }
+            // cdc_printf("\r\n");
+            
+            // UDS 응답 처리
+            data_type_t data_type;
+            if (diag_db_is_response_id(isotp_can_id, &data_type)) {
+                diag_db_handle_uds_response(isotp_can_id);
+                parse_multiple_data(isotp_data, isotp_length, isotp_can_id);
+            }
+            
+            // ISO-TP 세션 리셋 (외부 함수 호출)
+            extern void can_manager_reset_isotp_session(void);
+            can_manager_reset_isotp_session();
+            return;
+        }
+        
         // DIAG_DB를 사용하여 등록된 응답 CAN ID 확인
         data_type_t data_type;
         
+        // CAN RX 디버그 출력 추가
+        // cdc_printf("[CAN RX] ID: 0x%lX | Length: %d | Data: ", can_id, length);
+        // for (int i = 0; i < length; i++) {
+        //     cdc_printf("%02X ", data[i]);
+        // }
+        // cdc_printf("\r\n");
+
         // 디버그: 수신된 CAN ID와 예상 응답 ID 확인
         static uint32_t last_debug_time = 0;
         if (millis() - last_debug_time > 1000) {  // 1초마다만 출력
@@ -105,6 +140,10 @@ void uds_debug_output(uint32_t can_id, uint8_t *data, uint8_t length)
         }
         
         if (diag_db_is_response_id(can_id, &data_type)) {
+            // UDS 응답 수신을 큐 시스템에 알림
+            diag_db_handle_uds_response(can_id);
+            
+            // 기존 데이터 처리
             steering_data_handler(can_id, data, length);
         } else {
             DEBUG_PRINT("[DEBUG] No matching response ID found\r\n");
@@ -156,7 +195,7 @@ void parse_multiple_data(uint8_t *complete_data, uint8_t data_length, uint32_t c
             }
             
             // Speed 데이터도 출력
-            if (i == DATA_TYPE_SPEED) {
+            if (i == DATA_TYPE_SPEED_MDPS) {
                 // Speed 값도 확인용으로 출력 (디버그용)
                 DEBUG_PRINT("[COMM] Speed extracted: %.1f km/h\r\n", value);
             }
@@ -285,18 +324,50 @@ void send_protocol_packet(protocol_data_id_t data_id, float value)
     
     // 데이터 타입에 따른 데이터 변환
     if (data_id == PROTOCOL_ID_STEERING_ANGLE) {
-        // 스티어링: float을 2바이트 signed int로 변환 (0.1도 단위)
-        int16_t steering_int = (int16_t)(value * 10);
+        // 스티어링: float을 2바이트 signed int로 변환 (도 단위)
+        int16_t steering_int = (int16_t)(value);
         packet.length = 2;
         packet.data[0] = (uint8_t)(steering_int >> 8);     // High byte
         packet.data[1] = (uint8_t)(steering_int & 0xFF);   // Low byte
     }
     else if (data_id == PROTOCOL_ID_VEHICLE_SPEED) {
-        // 속도: float을 2바이트 unsigned int로 변환 (0.1km/h 단위)
-        uint16_t speed_int = (uint16_t)(value * 10);
+        // 속도: float을 2바이트 unsigned int로 변환 (km/h 단위)
+        uint16_t speed_int = (uint16_t)(value);
         packet.length = 2;
         packet.data[0] = (uint8_t)(speed_int >> 8);        // High byte
         packet.data[1] = (uint8_t)(speed_int & 0xFF);      // Low byte
+    }
+    else if (data_id == PROTOCOL_ID_APS || data_id == PROTOCOL_ID_BPS) {
+        // APS/BPS: float을 2바이트 unsigned int로 변환 (% 단위, 0.1% 정밀도)
+        uint16_t pedal_int = (uint16_t)(value);
+        packet.length = 2;
+        packet.data[0] = (uint8_t)(pedal_int >> 8);        // High byte
+        packet.data[1] = (uint8_t)(pedal_int & 0xFF);      // Low byte
+    }
+    else if (data_id == PROTOCOL_ID_GEAR) {
+        // 기어: 1바이트 정수 (P=0, R=1, N=2, D=3, etc.)
+        packet.length = 1;
+        packet.data[0] = (uint8_t)value;
+    }
+    else if (data_id == PROTOCOL_ID_TURN_SIGNAL || data_id == PROTOCOL_ID_DOOR_OPEN || 
+             data_id == PROTOCOL_ID_SEAT_BELT) {
+        // 상태 데이터: 1바이트 비트마스크
+        packet.length = 1;
+        packet.data[0] = (uint8_t)value;
+    }
+    else if (data_id == PROTOCOL_ID_RADAR) {
+        // 레이더: float을 2바이트 unsigned int로 변환 (거리, cm 단위)
+        uint16_t distance_int = (uint16_t)(value * 100);
+        packet.length = 2;
+        packet.data[0] = (uint8_t)(distance_int >> 8);     // High byte
+        packet.data[1] = (uint8_t)(distance_int & 0xFF);   // Low byte
+    }
+    else if (data_id == PROTOCOL_ID_BMS) {
+        // BMS 데이터: float을 2바이트 signed int로 변환 (온도, 1도 단위)
+        int16_t temp_int = (int16_t)(value);
+        packet.length = 2;
+        packet.data[0] = (uint8_t)(temp_int >> 8);         // High byte
+        packet.data[1] = (uint8_t)(temp_int & 0xFF);       // Low byte
     }
     else {
         // 기타 데이터: 4바이트 float로 전송
@@ -328,18 +399,11 @@ void send_protocol_packet(protocol_data_id_t data_id, float value)
     uint32_t bytes_sent = uartWrite(HW_UART_CH_EXT, uart_buffer, packet_size);
     
     // 디버그 출력 (CDC) - 전송된 전체 패킷 표시
-    cdc_printf("[PROTOCOL TX] ID:0x%02X Len:%d Data:", packet.data_id, packet.length);
-    for (int i = 0; i < packet.length; i++) {
-        cdc_printf(" %02X", packet.data[i]);
-    }
-    cdc_printf(" Checksum:0x%02X\r\n", packet.checksum);
-    
-    // 실제 전송된 바이트 표시
-    cdc_printf("[UART RAW TX] Sent %lu bytes: ", bytes_sent);
-    for (int i = 0; i < packet_size; i++) {
-        cdc_printf("%02X ", uart_buffer[i]);
-    }
-    cdc_printf("\r\n");
+    // cdc_printf("[PROTOCOL TX] ID:0x%02X Len:%d Data:", packet.data_id, packet.length);
+    // for (int i = 0; i < packet.length; i++) {
+    //     cdc_printf(" %02X", packet.data[i]);
+    // }
+    // cdc_printf(" Checksum:0x%02X\r\n", packet.checksum);
 }
 
 // 스티어링 데이터 처리 함수 (개선됨: 완전한 데이터 수집 후 파싱)

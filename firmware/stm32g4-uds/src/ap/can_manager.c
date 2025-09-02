@@ -27,8 +27,37 @@ static bool is_tx_mode = false;
 static uint32_t last_uds_message_time = 0;
 static uint32_t uds_message_count = 0;
 
+// ISO-TP 멀티프레임 상태 관리
+typedef enum {
+    ISOTP_STATE_IDLE = 0,
+    ISOTP_STATE_WAITING_FF,      // First Frame 대기
+    ISOTP_STATE_WAITING_CF,      // Consecutive Frames 대기
+    ISOTP_STATE_COMPLETE,        // 모든 프레임 수신 완료
+    ISOTP_STATE_TIMEOUT          // 타임아웃
+} isotp_state_t;
+
+typedef struct {
+    isotp_state_t state;
+    uint32_t can_id;             // 수신 중인 CAN ID
+    uint16_t total_length;       // 전체 데이터 길이
+    uint16_t received_length;    // 수신된 데이터 길이
+    uint8_t expected_sn;         // 예상 Sequence Number
+    uint8_t buffer[4096];        // 수신 데이터 버퍼
+    uint32_t last_frame_time;    // 마지막 프레임 수신 시간
+} isotp_session_t;
+
+static isotp_session_t g_isotp_session = {0};
+#define ISOTP_TIMEOUT_MS 1000    // ISO-TP 타임아웃 (1초)
+
 // 외부에서 사용할 UDS 디버깅 함수 선언
 extern void uds_debug_output(uint32_t can_id, uint8_t *data, uint8_t length);
+
+// ISO-TP 상태 관리 함수들
+static void isotp_session_reset(void);
+static bool isotp_handle_first_frame(uint32_t can_id, uint8_t *data, uint8_t length);
+static bool isotp_handle_consecutive_frame(uint32_t can_id, uint8_t *data, uint8_t length);
+static void isotp_check_timeout(void);
+static bool isotp_is_complete(void);
 
 // CLI 함수 제거됨 - TALK 모드에서 직접 입력 처리
 
@@ -298,7 +327,7 @@ void can_error_recovery(void)
     cdc_printf("UDS CAN recovery completed\r\n");
 }
 
-// ISO-TP 자동 Flow Control 처리 함수
+// ISO-TP 자동 Flow Control 처리 함수 (상태 관리 통합)
 void uds_auto_flow_control(can_msg_t *rx_msg)
 {
     // TALK 모드와 UDS_PATH 모드에서 자동 Flow Control 동작
@@ -312,50 +341,182 @@ void uds_auto_flow_control(can_msg_t *rx_msg)
     uint8_t pci = rx_msg->data[0];
     uint8_t frame_type = (pci >> 4) & 0x0F;
     
-    // First Frame (0x1)인지 확인
+    // First Frame (0x1) 처리
     if (frame_type == 0x1) {
-        // 전체 데이터 길이 확인
-        uint16_t total_length = ((pci & 0x0F) << 8) | rx_msg->data[1];
+        // ISO-TP First Frame 처리
+        if (isotp_handle_first_frame(rx_msg->id, rx_msg->data, rx_msg->length)) {
+            // 전체 데이터 길이 확인
+            uint16_t total_length = ((pci & 0x0F) << 8) | rx_msg->data[1];
 
-        // 모든 UDS 응답에 대해 Flow Control 전송 (길이가 8바이트를 초과하는 경우)
-        if (rx_msg->length >= 3 && total_length > 7) {
-            // Flow Control 메시지 구성
-            can_msg_t flow_control_msg;
-            
-            // 응답 ID 계산 (일반적으로 수신 ID - 8)
-            // 0x7DC(수신) -> 0x7D4(송신)
-            uint32_t tx_id = rx_msg->id - 8;
-            
-            // CAN 메시지 초기화
-            canMsgInit(&flow_control_msg, CAN_CLASSIC, CAN_STD, canGetDlc(8));
-            flow_control_msg.id = tx_id;
-            flow_control_msg.length = 8;
-            
-            // Flow Control 데이터 구성
-            flow_control_msg.data[0] = 0x30;  // Flow Control (0x3) + CTS (0x0)
-            flow_control_msg.data[1] = 0x00;  // Block Size (0 = 무제한)
-            flow_control_msg.data[2] = 0x00;  // Separation Time (0ms)
-            flow_control_msg.data[3] = 0x00;  // 패딩
-            flow_control_msg.data[4] = 0x00;  // 패딩
-            flow_control_msg.data[5] = 0x00;  // 패딩
-            flow_control_msg.data[6] = 0x00;  // 패딩
-            flow_control_msg.data[7] = 0x00;  // 패딩
-            
-            // Flow Control 전송
-            if (canMsgWrite(_DEF_CAN1, &flow_control_msg, 100)) {
+            // Flow Control 전송 (길이가 8바이트를 초과하는 경우)
+            if (rx_msg->length >= 3 && total_length > 7) {
+                // Flow Control 메시지 구성
+                can_msg_t flow_control_msg;
                 
-                // 전송된 데이터를 상세 출력
-                    // cdc_printf("[AUTO FC] TX Data: ");
-                    // for (int i = 0; i < flow_control_msg.length; i++) {
-                    //     cdc_printf("%02X ", flow_control_msg.data[i]);
-                    // }
-                    // cdc_printf("\r\n");
-            } else {
-                DEBUG_PRINT("[AUTO FC] Flow Control send failed! (Mode: %s)\r\n", 
-                           current_mode == UDS_MODE_TALK ? "TALK" : "UDS_PATH");
+                // 응답 ID 계산 (일반적으로 수신 ID - 8)
+                uint32_t tx_id = rx_msg->id - 8;
+                
+                // CAN 메시지 초기화
+                canMsgInit(&flow_control_msg, CAN_CLASSIC, CAN_STD, canGetDlc(8));
+                flow_control_msg.id = tx_id;
+                flow_control_msg.length = 8;
+                
+                // Flow Control 데이터 구성
+                flow_control_msg.data[0] = 0x30;  // Flow Control (0x3) + CTS (0x0)
+                flow_control_msg.data[1] = 0x00;  // Block Size (0 = 무제한)
+                flow_control_msg.data[2] = 0x00;  // Separation Time (0ms)
+                flow_control_msg.data[3] = 0x00;  // 패딩
+                flow_control_msg.data[4] = 0x00;  // 패딩
+                flow_control_msg.data[5] = 0x00;  // 패딩
+                flow_control_msg.data[6] = 0x00;  // 패딩
+                flow_control_msg.data[7] = 0x00;  // 패딩
+                
+                // Flow Control 전송
+                if (canMsgWrite(_DEF_CAN1, &flow_control_msg, 100)) {
+                    DEBUG_PRINT("[ISOTP] Flow Control sent for ID 0x%lX\r\n", rx_msg->id);
+                } else {
+                    DEBUG_PRINT("[ISOTP] Flow Control send failed!\r\n");
+                }
             }
         }
     }
+    // Consecutive Frame (0x2) 처리
+    else if (frame_type == 0x2) {
+        isotp_handle_consecutive_frame(rx_msg->id, rx_msg->data, rx_msg->length);
+    }
+    
+    // 타임아웃 체크
+    isotp_check_timeout();
+}
+
+// ============================================================================
+// ISO-TP 상태 관리 함수들
+// ============================================================================
+
+// ISO-TP 세션 초기화
+static void isotp_session_reset(void)
+{
+    memset(&g_isotp_session, 0, sizeof(g_isotp_session));
+    g_isotp_session.state = ISOTP_STATE_IDLE;
+    DEBUG_PRINT("[ISOTP] Session reset\r\n");
+}
+
+// First Frame 처리
+static bool isotp_handle_first_frame(uint32_t can_id, uint8_t *data, uint8_t length)
+{
+    if (length < 3) return false;
+    
+    // First Frame PCI 확인 (0x1X)
+    uint8_t pci = data[0];
+    if ((pci & 0xF0) != 0x10) return false;
+    
+    // 전체 데이터 길이 추출
+    uint16_t total_length = ((pci & 0x0F) << 8) | data[1];
+    
+    // 세션 초기화
+    g_isotp_session.state = ISOTP_STATE_WAITING_CF;
+    g_isotp_session.can_id = can_id;
+    g_isotp_session.total_length = total_length;
+    g_isotp_session.received_length = length - 2;  // PCI와 길이 필드 제외
+    g_isotp_session.expected_sn = 1;  // 첫 번째 Consecutive Frame은 SN=1
+    g_isotp_session.last_frame_time = millis();
+    
+    // First Frame 데이터 복사 (PCI와 길이 필드 제외)
+    memcpy(g_isotp_session.buffer, &data[2], g_isotp_session.received_length);
+    
+    DEBUG_PRINT("[ISOTP] First Frame received: ID=0x%lX, Total=%d, Received=%d\r\n", 
+               can_id, total_length, g_isotp_session.received_length);
+    
+    return true;
+}
+
+// Consecutive Frame 처리
+static bool isotp_handle_consecutive_frame(uint32_t can_id, uint8_t *data, uint8_t length)
+{
+    if (g_isotp_session.state != ISOTP_STATE_WAITING_CF) return false;
+    if (can_id != g_isotp_session.can_id) return false;
+    if (length < 2) return false;
+    
+    // Consecutive Frame PCI 확인 (0x2X)
+    uint8_t pci = data[0];
+    if ((pci & 0xF0) != 0x20) return false;
+    
+    uint8_t sn = pci & 0x0F;  // Sequence Number
+    
+    // Sequence Number 검증
+    if (sn != g_isotp_session.expected_sn) {
+        DEBUG_PRINT("[ISOTP] SN mismatch: expected=%d, received=%d\r\n", 
+                   g_isotp_session.expected_sn, sn);
+        isotp_session_reset();
+        return false;
+    }
+    
+    // 데이터 복사 (PCI 제외)
+    uint8_t data_length = length - 1;
+    if (g_isotp_session.received_length + data_length > sizeof(g_isotp_session.buffer)) {
+        DEBUG_PRINT("[ISOTP] Buffer overflow\r\n");
+        isotp_session_reset();
+        return false;
+    }
+    
+    memcpy(&g_isotp_session.buffer[g_isotp_session.received_length], &data[1], data_length);
+    g_isotp_session.received_length += data_length;
+    g_isotp_session.expected_sn = (g_isotp_session.expected_sn + 1) % 16;
+    g_isotp_session.last_frame_time = millis();
+    
+    DEBUG_PRINT("[ISOTP] Consecutive Frame: SN=%d, Data=%d, Total=%d/%d\r\n", 
+               sn, data_length, g_isotp_session.received_length, g_isotp_session.total_length);
+    
+    // 모든 데이터 수신 완료 확인
+    if (g_isotp_session.received_length >= g_isotp_session.total_length) {
+        g_isotp_session.state = ISOTP_STATE_COMPLETE;
+        DEBUG_PRINT("[ISOTP] Multi-frame complete: %d bytes\r\n", g_isotp_session.received_length);
+        return true;
+    }
+    
+    return true;
+}
+
+// 타임아웃 체크
+static void isotp_check_timeout(void)
+{
+    if (g_isotp_session.state == ISOTP_STATE_WAITING_CF) {
+        uint32_t elapsed = millis() - g_isotp_session.last_frame_time;
+        if (elapsed > ISOTP_TIMEOUT_MS) {
+            DEBUG_PRINT("[ISOTP] Timeout after %lums\r\n", elapsed);
+            g_isotp_session.state = ISOTP_STATE_TIMEOUT;
+        }
+    }
+}
+
+// 멀티프레임 완료 확인
+static bool isotp_is_complete(void)
+{
+    return g_isotp_session.state == ISOTP_STATE_COMPLETE;
+}
+
+// ISO-TP 상태 확인 (외부에서 호출)
+bool can_manager_is_isotp_active(void)
+{
+    return g_isotp_session.state == ISOTP_STATE_WAITING_CF;
+}
+
+// ISO-TP 완료된 데이터 가져오기 (외부에서 호출)
+bool can_manager_get_isotp_data(uint32_t *can_id, uint8_t **data, uint16_t *length)
+{
+    if (g_isotp_session.state == ISOTP_STATE_COMPLETE) {
+        *can_id = g_isotp_session.can_id;
+        *data = g_isotp_session.buffer;
+        *length = g_isotp_session.received_length;
+        return true;
+    }
+    return false;
+}
+
+// ISO-TP 세션 리셋 (외부에서 호출)
+void can_manager_reset_isotp_session(void)
+{
+    isotp_session_reset();
 }
 
 // CLI 함수 제거됨 - TALK 모드에서 직접 터미널 입력 처리로 대체

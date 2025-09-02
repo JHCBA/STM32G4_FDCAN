@@ -21,6 +21,28 @@ vehicle_settings_t g_vehicle_settings;
 did_group_t g_did_groups[MAX_DID_GROUPS];
 uint8_t g_did_group_count = 0;
 
+// UDS 요청 큐 관리 변수
+static uds_request_queue_item_t g_uds_request_queue[UDS_REQUEST_QUEUE_SIZE];
+static int g_uds_queue_head = 0;
+static int g_uds_queue_tail = 0;
+static int g_uds_queue_count = 0;
+static uds_request_state_t g_uds_current_state = UDS_REQUEST_STATE_IDLE;
+static uint32_t g_uds_current_request_time = 0;
+static did_group_t* g_uds_current_group = NULL;
+
+// UDS 큐 초기화 함수
+static void uds_queue_init(void)
+{
+    memset(g_uds_request_queue, 0, sizeof(g_uds_request_queue));
+    g_uds_queue_head = 0;
+    g_uds_queue_tail = 0;
+    g_uds_queue_count = 0;
+    g_uds_current_state = UDS_REQUEST_STATE_IDLE;
+    g_uds_current_request_time = 0;
+    g_uds_current_group = NULL;
+    DEBUG_PRINT("[UDS_QUEUE] Queue initialized\r\n");
+}
+
 // CRC32 계산 함수 (간단한 구현)
 static uint32_t calculate_crc32(const uint8_t* data, uint32_t length)
 {
@@ -48,8 +70,8 @@ void diag_db_load_defaults(void)
     g_vehicle_settings.version = DIAG_DB_VERSION;
     strncpy(g_vehicle_settings.vehicle_name, DEFAULT_VEHICLE_NAME, sizeof(g_vehicle_settings.vehicle_name) - 1);
     
-    // 스티어링 데이터 기본 설정 (SONATA_DN8_HME)
-    data_config_t* steering = &g_vehicle_settings.data_configs[DATA_TYPE_STEERING];
+    // 스티어링 데이터 기본 설정
+    data_config_t* steering = &g_vehicle_settings.data_configs[DATA_TYPE_STEERING_MDPS];
     steering->enabled = true;
     steering->did = 0x0101;
     steering->request_id = 0x7D4;       // 응답 ID는 0x7DC (자동 계산)
@@ -59,13 +81,13 @@ void diag_db_load_defaults(void)
     steering->offset_value = 0;
     steering->is_signed = true;
     steering->big_end_msb_first = true;     // MSB first
-    steering->request_period_ms = 1000;  // 100ms 주기
+    steering->request_period_ms = 500;  // 100ms 주기
     strncpy(steering->unit, "deg", sizeof(steering->unit) - 1);
     strncpy(steering->name, "Steering", sizeof(steering->name) - 1);
     
     // 속도 데이터 기본 설정
-    data_config_t* speed = &g_vehicle_settings.data_configs[DATA_TYPE_SPEED];
-    speed->enabled = true;              // Steering과 함께 활성화
+    data_config_t* speed = &g_vehicle_settings.data_configs[DATA_TYPE_SPEED_MDPS];
+    speed->enabled = true;            // Steering과 함께 활성화
     speed->did = 0x0101;                // 스티어링과 같은 DID 사용
     speed->request_id = 0x7D4;          // 응답 ID는 0x7DC (자동 계산)
     speed->data_offset = 12 + DATA_START_IDX;          // 12번째 바이트
@@ -74,54 +96,159 @@ void diag_db_load_defaults(void)
     speed->offset_value = 0;
     speed->is_signed = false;
     speed->big_end_msb_first = false;
-    speed->request_period_ms = 1000;     // Steering과 같은 주기로 변경
+    speed->request_period_ms = 500;     // Steering과 같은 주기로 변경
     strncpy(speed->unit, "km/h", sizeof(speed->unit) - 1);
     strncpy(speed->name, "Speed", sizeof(speed->name) - 1);
     
-    // 엔진 RPM 기본 설정 (예시)
-    data_config_t* rpm = &g_vehicle_settings.data_configs[DATA_TYPE_ENGINE_RPM];
-    rpm->enabled = false;
-    rpm->did = 0x0103;
-    rpm->request_id = 0x7D4;            // 응답 ID는 0x7DC (자동 계산)
-    rpm->data_offset = 9;
-    rpm->data_length = 2;
-    rpm->resolution = 0.25f;
-    rpm->offset_value = 0;
-    rpm->is_signed = false;
-    rpm->big_end_msb_first = true;
-    rpm->request_period_ms = 1000;       // 500ms 주기
-    strncpy(rpm->unit, "rpm", sizeof(rpm->unit) - 1);
-    strncpy(rpm->name, "EngineRPM", sizeof(rpm->name) - 1);
+    // APS ECU 데이터 설정 TODO
+    data_config_t* aps_ecu = &g_vehicle_settings.data_configs[DATA_TYPE_APS_ECU];
+    aps_ecu->enabled = false;  // 기본적으로 비활성화
+    aps_ecu->did = 0x0102;
+    aps_ecu->request_id = 0x7D4;
+    aps_ecu->data_offset = 5 + DATA_START_IDX;
+    aps_ecu->data_length = 1;
+    aps_ecu->resolution = 0.4f;  // 0~100% -> 0~255
+    aps_ecu->offset_value = 0;
+    aps_ecu->is_signed = false;
+    aps_ecu->big_end_msb_first = false;
+    aps_ecu->request_period_ms = 500;
+    strncpy(aps_ecu->unit, "%", sizeof(aps_ecu->unit) - 1);
+    strncpy(aps_ecu->name, "APS_ECU", sizeof(aps_ecu->name) - 1);
     
-    // 배터리 온도 1
-    data_config_t* batt_temp_1 = &g_vehicle_settings.data_configs[DATA_TYPE_BATT_TEMP_1];
-    batt_temp_1->enabled = true;
-    batt_temp_1->did = 0x0101;
-    batt_temp_1->request_id = 0x7E4;            // 응답 ID는 0x7EC (자동 계산)
-    batt_temp_1->data_offset = 16 + DATA_START_IDX;     // 16번째 바이트
-    batt_temp_1->data_length = 1;
-    batt_temp_1->resolution = 1.0f;
-    batt_temp_1->offset_value = 0;
-    batt_temp_1->is_signed = true;
-    batt_temp_1->big_end_msb_first = true;
-    batt_temp_1->request_period_ms = 1000;      // Steering과 동일한 주기
-    strncpy(batt_temp_1->unit, "Celsius", sizeof(batt_temp_1->unit) - 1);
-    strncpy(batt_temp_1->name, "BattTemp1", sizeof(batt_temp_1->name) - 1);
+    // BPS ECU 데이터 설정 TODO
+    data_config_t* bps_ecu = &g_vehicle_settings.data_configs[DATA_TYPE_BPS_ECU];
+    bps_ecu->enabled = false;  // 기본적으로 비활성화
+    bps_ecu->did = 0x0102;
+    bps_ecu->request_id = 0x7D4;
+    bps_ecu->data_offset = 6 + DATA_START_IDX;
+    bps_ecu->data_length = 1;
+    bps_ecu->resolution = 0.4f;  // 0~100% -> 0~255
+    bps_ecu->offset_value = 0;
+    bps_ecu->is_signed = false;
+    bps_ecu->big_end_msb_first = false;
+    bps_ecu->request_period_ms = 500;
+    strncpy(bps_ecu->unit, "%", sizeof(bps_ecu->unit) - 1);
+    strncpy(bps_ecu->name, "BPS_ECU", sizeof(bps_ecu->name) - 1);
     
-    // 배터리 온도 2
-    data_config_t* batt_temp_2 = &g_vehicle_settings.data_configs[DATA_TYPE_BATT_TEMP_2];
-    batt_temp_2->enabled = true;
-    batt_temp_2->did = 0x0101;
-    batt_temp_2->request_id = 0x7E4;            // 응답 ID는 0x7EC (자동 계산)
-    batt_temp_2->data_offset = 17 + DATA_START_IDX;     // 17번째 바이트
-    batt_temp_2->data_length = 1;
-    batt_temp_2->resolution = 1.0f;
-    batt_temp_2->offset_value = 0;
-    batt_temp_2->is_signed = true;
-    batt_temp_2->big_end_msb_first = true;
-    batt_temp_2->request_period_ms = 1000;      // Steering과 동일한 주기
-    strncpy(batt_temp_2->unit, "Celsius", sizeof(batt_temp_2->unit) - 1);
-    strncpy(batt_temp_2->name, "BattTemp2", sizeof(batt_temp_2->name) - 1);
+    // APS VCU 데이터 설정
+    data_config_t* aps_vcu = &g_vehicle_settings.data_configs[DATA_TYPE_APS_VCU];
+    aps_vcu->enabled = true;  // 기본적으로 비활성화
+    aps_vcu->did = 0xE004;
+    aps_vcu->request_id = 0x7E2;
+    aps_vcu->data_offset = 8 + DATA_START_IDX;
+    aps_vcu->data_length = 2;
+    aps_vcu->resolution = 0.001953125f;
+    aps_vcu->offset_value = 0;
+    aps_vcu->is_signed = false;
+    aps_vcu->big_end_msb_first = false;
+    aps_vcu->request_period_ms = 500;
+    strncpy(aps_vcu->unit, "%", sizeof(aps_vcu->unit) - 1);
+    strncpy(aps_vcu->name, "APS_VCU", sizeof(aps_vcu->name) - 1);
+    
+    // BPS VCU 데이터 설정
+    data_config_t* bps_vcu = &g_vehicle_settings.data_configs[DATA_TYPE_BPS_ABS];
+    bps_vcu->enabled = true;  // 기본적으로 비활성화
+    bps_vcu->did = 0x0104;
+    bps_vcu->request_id = 0x7D1;
+    bps_vcu->data_offset = 38 + DATA_START_IDX;
+    bps_vcu->data_length = 2;
+    bps_vcu->resolution = 0.01f;
+    bps_vcu->offset_value = 0;
+    bps_vcu->is_signed = true;
+    bps_vcu->big_end_msb_first = true;
+    bps_vcu->request_period_ms = 500;
+    strncpy(bps_vcu->unit, "mm", sizeof(bps_vcu->unit) - 1);
+    strncpy(bps_vcu->name, "BPS_VCU", sizeof(bps_vcu->name) - 1);
+    
+    // 기어 상태 설정
+    data_config_t* gear = &g_vehicle_settings.data_configs[DATA_TYPE_GEAR_VCU];
+    gear->enabled = true;  // 기본적으로 비활성화
+    gear->did = 0xE004;
+    gear->request_id = 0x7E2;
+    gear->data_offset = 14 + DATA_START_IDX;
+    gear->data_length = 1;
+    gear->resolution = 1.0f;  // P=0, R=1, N=2, D=3
+    gear->offset_value = 0;
+    gear->is_signed = false;
+    gear->big_end_msb_first = false;
+    gear->request_period_ms = 500;  // 2초 주기
+    strncpy(gear->unit, "", sizeof(gear->unit) - 1);
+    strncpy(gear->name, "Gear", sizeof(gear->name) - 1);
+    
+    // 방향지시등 설정
+    data_config_t* turn_sig = &g_vehicle_settings.data_configs[DATA_TYPE_TURN_SIG_MFSW];
+    turn_sig->enabled = true;  // 기본적으로 비활성화
+    turn_sig->did = 0xB303;
+    turn_sig->request_id = 0x7A6;
+    turn_sig->data_offset = 4 + DATA_START_IDX;
+    turn_sig->data_length = 1;
+    turn_sig->resolution = 1.0f;  // 비트마스크: Left=1, Right=2, Hazard=3
+    turn_sig->offset_value = 0;
+    turn_sig->is_signed = false;
+    turn_sig->big_end_msb_first = false;
+    turn_sig->request_period_ms = 500;  // 500ms 주기
+    strncpy(turn_sig->unit, "", sizeof(turn_sig->unit) - 1);
+    strncpy(turn_sig->name, "TurnSignal", sizeof(turn_sig->name) - 1);
+    
+    // 차량 문 열림 설정
+    data_config_t* door_open = &g_vehicle_settings.data_configs[DATA_TYPE_DOOR_OPEN];
+    door_open->enabled = false;  // 기본적으로 비활성화
+    door_open->did = 0x0106;
+    door_open->request_id = 0x7D4;
+    door_open->data_offset = 13 + DATA_START_IDX;
+    door_open->data_length = 1;
+    door_open->resolution = 1.0f;  // 비트마스크: FL=1, FR=2, RL=4, RR=8
+    door_open->offset_value = 0;
+    door_open->is_signed = false;
+    door_open->big_end_msb_first = false;
+    door_open->request_period_ms = 500;  // 2초 주기
+    strncpy(door_open->unit, "", sizeof(door_open->unit) - 1);
+    strncpy(door_open->name, "DoorOpen", sizeof(door_open->name) - 1);
+    
+    // 안전벨트 설정
+    data_config_t* seat_belt = &g_vehicle_settings.data_configs[DATA_TYPE_SEAT_BELT];
+    seat_belt->enabled = false;  // 기본적으로 비활성화
+    seat_belt->did = 0x0107;
+    seat_belt->request_id = 0x7D4;
+    seat_belt->data_offset = 14 + DATA_START_IDX;
+    seat_belt->data_length = 1;
+    seat_belt->resolution = 1.0f;  // 비트마스크: Driver=1, Passenger=2
+    seat_belt->offset_value = 0;
+    seat_belt->is_signed = false;
+    seat_belt->big_end_msb_first = false;
+    seat_belt->request_period_ms = 500;  // 2초 주기
+    strncpy(seat_belt->unit, "", sizeof(seat_belt->unit) - 1);
+    strncpy(seat_belt->name, "SeatBelt", sizeof(seat_belt->name) - 1);
+    
+    // 레이더 설정
+    data_config_t* radar = &g_vehicle_settings.data_configs[DATA_TYPE_RADAR];
+    radar->enabled = false;  // 기본적으로 비활성화
+    radar->did = 0x0108;
+    radar->request_id = 0x7D4;
+    radar->data_offset = 18 + DATA_START_IDX;
+    radar->data_length = 2;
+    radar->resolution = 0.1f;  // 0.1m 단위
+    radar->offset_value = 0;
+    radar->is_signed = false;
+    radar->big_end_msb_first = true;
+    radar->request_period_ms = 500;  // 200ms 주기 (빠른 업데이트)
+    strncpy(radar->unit, "m", sizeof(radar->unit) - 1);
+    strncpy(radar->name, "Radar", sizeof(radar->name) - 1);
+    
+    // 배터리 온도 설정 (기존 BATT_TEMP_1을 BATT_TEMP로 변경)
+    data_config_t* batt_temp = &g_vehicle_settings.data_configs[DATA_TYPE_BATT_TEMP_BMS];
+    batt_temp->enabled = true;
+    batt_temp->did = 0x0101;
+    batt_temp->request_id = 0x7E4;            // 응답 ID는 0x7EC (자동 계산)
+    batt_temp->data_offset = 16 + DATA_START_IDX;     // 16번째 바이트
+    batt_temp->data_length = 1;
+    batt_temp->resolution = 1.0f;
+    batt_temp->offset_value = 0;
+    batt_temp->is_signed = true;
+    batt_temp->big_end_msb_first = true;
+    batt_temp->request_period_ms = 500;      // Steering과 동일한 주기
+    strncpy(batt_temp->unit, "Celsius", sizeof(batt_temp->unit) - 1);
+    strncpy(batt_temp->name, "BattTemp", sizeof(batt_temp->name) - 1);
 
     // CRC32 계산
     g_vehicle_settings.crc32 = calculate_crc32((uint8_t*)&g_vehicle_settings, 
@@ -341,6 +468,9 @@ void diag_db_rebuild_did_groups(void)
             DEBUG_PRINT("  - %s\r\n", diag_db_get_data_type_name(group->data_types[j]));
         }
     }
+    
+    // UDS 큐 초기화
+    uds_queue_init();
 }
 
 // DID 그룹 찾기
@@ -391,7 +521,94 @@ void diag_db_send_group_request(did_group_t* group)
     }
 }
 
-// 주기적 UDS 요청 처리 (메인 루프에서 호출)
+// UDS 요청 큐에 추가 (중복 방지)
+static bool uds_queue_add_request(did_group_t* group)
+{
+    // 큐가 가득 찬 경우
+    if (g_uds_queue_count >= UDS_REQUEST_QUEUE_SIZE) {
+        DEBUG_PRINT("[UDS_QUEUE] Queue full, dropping request for DID 0x%04X\r\n", group->did);
+        return false;
+    }
+    
+    // 이미 큐에 있는지 확인 (중복 방지)
+    for (int i = 0; i < g_uds_queue_count; i++) {
+        int index = (g_uds_queue_head + i) % UDS_REQUEST_QUEUE_SIZE;
+        uds_request_queue_item_t* item = &g_uds_request_queue[index];
+        if (item->group == group && item->is_pending) {
+            DEBUG_PRINT("[UDS_QUEUE] Request for DID 0x%04X already in queue, skipping\r\n", group->did);
+            return false;
+        }
+    }
+    
+    // 현재 처리 중인 요청과 중복 확인
+    if (g_uds_current_group == group && g_uds_current_state == UDS_REQUEST_STATE_WAITING_RESPONSE) {
+        DEBUG_PRINT("[UDS_QUEUE] Request for DID 0x%04X already being processed, skipping\r\n", group->did);
+        return false;
+    }
+    
+    uds_request_queue_item_t* item = &g_uds_request_queue[g_uds_queue_tail];
+    item->group = group;
+    item->request_time = millis();
+    item->is_pending = true;
+    
+    g_uds_queue_tail = (g_uds_queue_tail + 1) % UDS_REQUEST_QUEUE_SIZE;
+    g_uds_queue_count++;
+    
+    DEBUG_PRINT("[UDS_QUEUE] Added request for DID 0x%04X (queue size: %d)\r\n", 
+               group->did, g_uds_queue_count);
+    return true;
+}
+
+// UDS 요청 큐에서 다음 요청 가져오기
+static uds_request_queue_item_t* uds_queue_get_next_request(void)
+{
+    if (g_uds_queue_count == 0) {
+        return NULL;
+    }
+    
+    uds_request_queue_item_t* item = &g_uds_request_queue[g_uds_queue_head];
+    return item;
+}
+
+// UDS 요청 큐에서 완료된 요청 제거
+static void uds_queue_remove_completed_request(void)
+{
+    if (g_uds_queue_count == 0) {
+        return;
+    }
+    
+    uds_request_queue_item_t* item = &g_uds_request_queue[g_uds_queue_head];
+    DEBUG_PRINT("[UDS_QUEUE] Completed request for DID 0x%04X\r\n", item->group->did);
+    
+    g_uds_queue_head = (g_uds_queue_head + 1) % UDS_REQUEST_QUEUE_SIZE;
+    g_uds_queue_count--;
+}
+
+// UDS 응답 수신 처리
+void diag_db_handle_uds_response(uint32_t can_id)
+{
+    DEBUG_PRINT("[UDS_QUEUE] Response received: CAN ID 0x%lX, Current state: %d, Current group: %p\r\n", 
+               can_id, g_uds_current_state, g_uds_current_group);
+    
+    if (g_uds_current_state == UDS_REQUEST_STATE_WAITING_RESPONSE && g_uds_current_group) {
+        // 현재 대기 중인 요청의 응답인지 확인
+        uint32_t expected_response_id = diag_db_get_response_id(g_uds_current_group->request_id);
+        DEBUG_PRINT("[UDS_QUEUE] Expected response ID: 0x%lX, Received: 0x%lX\r\n", 
+                   expected_response_id, can_id);
+        
+        if (expected_response_id == can_id) {
+            DEBUG_PRINT("[UDS_QUEUE] Response matched for DID 0x%04X (CAN ID: 0x%lX)\r\n", 
+                       g_uds_current_group->did, can_id);
+            g_uds_current_state = UDS_REQUEST_STATE_COMPLETED;
+        } else {
+            DEBUG_PRINT("[UDS_QUEUE] Response ID mismatch for DID 0x%04X\r\n", g_uds_current_group->did);
+        }
+    } else {
+        DEBUG_PRINT("[UDS_QUEUE] No active request waiting for response\r\n");
+    }
+}
+
+// 주기적 UDS 요청 처리 (순차 처리 방식으로 변경)
 void diag_db_process_periodic_requests(void)
 {
     // UDS_PATH 모드에서만 주기적 요청 동작
@@ -401,16 +618,87 @@ void diag_db_process_periodic_requests(void)
     
     uint32_t current_time = millis();
     
-    for (int i = 0; i < g_did_group_count; i++) {
-        did_group_t* group = &g_did_groups[i];
-        
-        if (!group->is_active) {
-            continue;
+    // 현재 UDS 요청 상태 처리
+    switch (g_uds_current_state) {
+        case UDS_REQUEST_STATE_IDLE:
+        {
+            // ISO-TP 멀티프레임 수신 중인지 확인
+            extern bool can_manager_is_isotp_active(void);
+            if (can_manager_is_isotp_active()) {
+                DEBUG_PRINT("[UDS_QUEUE] Waiting for ISO-TP multi-frame completion\r\n");
+                break;  // 멀티프레임 수신 중이면 대기
+            }
+            
+            // 주기적 요청 체크 및 큐에 추가
+            for (int i = 0; i < g_did_group_count; i++) {
+                did_group_t* group = &g_did_groups[i];
+                
+                if (!group->is_active) {
+                    continue;
+                }
+                
+                // 주기 체크
+                if (current_time - group->last_request_time >= group->min_period_ms) {
+                    DEBUG_PRINT("[UDS_QUEUE] Period check: DID 0x%04X (last: %lu, period: %lu, current: %lu)\r\n", 
+                               group->did, group->last_request_time, group->min_period_ms, current_time);
+                    uds_queue_add_request(group);
+                }
+            }
+            
+            // 큐에서 다음 요청 처리
+            uds_request_queue_item_t* next_request = uds_queue_get_next_request();
+            if (next_request) {
+                g_uds_current_group = next_request->group;
+                g_uds_current_request_time = current_time;
+                g_uds_current_state = UDS_REQUEST_STATE_WAITING_RESPONSE;
+                
+                DEBUG_PRINT("[UDS_QUEUE] Processing request for DID 0x%04X (queue remaining: %d)\r\n", 
+                           g_uds_current_group->did, g_uds_queue_count - 1);
+                
+                // 실제 UDS 요청 전송
+                diag_db_send_group_request(g_uds_current_group);
+            }
+            break;
         }
         
-        // 주기 체크
-        if (current_time - group->last_request_time >= group->min_period_ms) {
-            diag_db_send_group_request(group);
+        case UDS_REQUEST_STATE_WAITING_RESPONSE:
+        {
+            // 응답 타임아웃 체크
+            uint32_t elapsed_time = current_time - g_uds_current_request_time;
+            if (elapsed_time >= UDS_RESPONSE_TIMEOUT_MS) {
+                DEBUG_PRINT("[UDS_QUEUE] Timeout for DID 0x%04X after %lums (timeout: %dms)\r\n", 
+                           g_uds_current_group->did, elapsed_time, UDS_RESPONSE_TIMEOUT_MS);
+                g_uds_current_state = UDS_REQUEST_STATE_TIMEOUT;
+            } else {
+                // 주기적으로 대기 상태 로그 (5초마다)
+                static uint32_t last_waiting_log = 0;
+                if (current_time - last_waiting_log >= 5000) {
+                    DEBUG_PRINT("[UDS_QUEUE] Waiting for response: DID 0x%04X, elapsed: %lums\r\n", 
+                               g_uds_current_group->did, elapsed_time);
+                    last_waiting_log = current_time;
+                }
+            }
+            break;
+        }
+        
+        case UDS_REQUEST_STATE_COMPLETED:
+        {
+            DEBUG_PRINT("[UDS_QUEUE] Request completed for DID 0x%04X\r\n", g_uds_current_group->did);
+            // 완료된 요청 제거 및 상태 초기화
+            uds_queue_remove_completed_request();
+            g_uds_current_group = NULL;
+            g_uds_current_state = UDS_REQUEST_STATE_IDLE;
+            break;
+        }
+        
+        case UDS_REQUEST_STATE_TIMEOUT:
+        {
+            DEBUG_PRINT("[UDS_QUEUE] Request timeout for DID 0x%04X\r\n", g_uds_current_group->did);
+            // 타임아웃된 요청 제거 및 상태 초기화
+            uds_queue_remove_completed_request();
+            g_uds_current_group = NULL;
+            g_uds_current_state = UDS_REQUEST_STATE_IDLE;
+            break;
         }
     }
 }
@@ -444,7 +732,7 @@ bool diag_db_extract_data_value(data_type_t type, uint8_t *complete_data, uint8_
     }
     
     // UDS_PATH 모드에서만 Complete data 출력 (첫 번째 데이터 타입에서만)
-    if (get_current_mode() == UDS_MODE_UDS_PATH && type == DATA_TYPE_STEERING) {
+    if (get_current_mode() == UDS_MODE_UDS_PATH && type == DATA_TYPE_STEERING_MDPS) {
         DEBUG_PRINT("[DIAG_DB] Complete data (%d bytes): ", data_length);
         for (int i = 0; i < data_length; i++) {
             DEBUG_PRINT("%02X ", complete_data[i]);
@@ -589,7 +877,18 @@ void diag_db_send_data_request(data_type_t type)
 const char* diag_db_get_data_type_name(data_type_t type)
 {
     static const char* type_names[] = {
-        "Steering", "Speed", "EngineRPM", "BattTemp1", "BattTemp2"
+        "Steering",      // DATA_TYPE_STEERING_MDPS = 0
+        "Speed",         // DATA_TYPE_SPEED_MDPS = 1
+        "APS_ECU",       // DATA_TYPE_APS_ECU = 2
+        "BPS_ECU",       // DATA_TYPE_BPS_ECU = 3
+        "APS_VCU",       // DATA_TYPE_APS_VCU = 4
+        "BPS_VCU",       // DATA_TYPE_BPS_ABS = 5
+        "Gear",          // DATA_TYPE_GEAR_VCU = 6
+        "TurnSignal",    // DATA_TYPE_TURN_SIG_MFSW = 7
+        "DoorOpen",      // DATA_TYPE_DOOR_OPEN = 8
+        "SeatBelt",      // DATA_TYPE_SEAT_BELT = 9
+        "Radar",         // DATA_TYPE_RADAR = 10
+        "BattTemp"       // DATA_TYPE_BATT_TEMP_BMS = 11
     };
     
     if (type < DATA_TYPE_MAX) {
@@ -603,19 +902,19 @@ bool diag_db_is_steering_response(uint32_t can_id)
 {
     data_type_t type;
     if (diag_db_is_response_id(can_id, &type)) {
-        return (type == DATA_TYPE_STEERING);
+        return (type == DATA_TYPE_STEERING_MDPS);
     }
     return false;
 }
 
 bool diag_db_extract_steering_angle(uint8_t *complete_data, uint8_t data_length, float *steering_angle)
 {
-    return diag_db_extract_data_value(DATA_TYPE_STEERING, complete_data, data_length, steering_angle);
+    return diag_db_extract_data_value(DATA_TYPE_STEERING_MDPS, complete_data, data_length, steering_angle);
 }
 
 void diag_db_send_steering_request(void)
 {
-    diag_db_send_data_request(DATA_TYPE_STEERING);
+    diag_db_send_data_request(DATA_TYPE_STEERING_MDPS);
 }
 
 const char* diag_db_get_vehicle_name(void)

@@ -15,11 +15,18 @@ extern "C" {
 
 // 데이터 타입 정의
 typedef enum {
-    DATA_TYPE_STEERING = 0,
-    DATA_TYPE_SPEED = 1,
-    DATA_TYPE_ENGINE_RPM = 2,
-    DATA_TYPE_BATT_TEMP_1 = 3,
-    DATA_TYPE_BATT_TEMP_2 = 4,
+    DATA_TYPE_STEERING_MDPS = 0,
+    DATA_TYPE_SPEED_MDPS = 1,
+    DATA_TYPE_APS_ECU = 2,
+    DATA_TYPE_BPS_ECU = 3,
+    DATA_TYPE_APS_VCU = 4,
+    DATA_TYPE_BPS_ABS = 5,
+    DATA_TYPE_GEAR_VCU = 6,
+    DATA_TYPE_TURN_SIG_MFSW = 7,
+    DATA_TYPE_DOOR_OPEN = 8,
+    DATA_TYPE_SEAT_BELT = 9,
+    DATA_TYPE_RADAR = 10,
+    DATA_TYPE_BATT_TEMP_BMS = 11,
     DATA_TYPE_MAX
 } data_type_t;
 
@@ -53,6 +60,25 @@ typedef struct {
 
 // 최대 DID 그룹 수
 #define MAX_DID_GROUPS  8
+
+// UDS 요청 상태 관리
+typedef enum {
+    UDS_REQUEST_STATE_IDLE = 0,
+    UDS_REQUEST_STATE_WAITING_RESPONSE,
+    UDS_REQUEST_STATE_TIMEOUT,
+    UDS_REQUEST_STATE_COMPLETED
+} uds_request_state_t;
+
+// UDS 요청 큐 아이템
+typedef struct {
+    did_group_t* group;
+    uint32_t request_time;
+    bool is_pending;
+} uds_request_queue_item_t;
+
+// UDS 요청 큐 관리
+#define UDS_REQUEST_QUEUE_SIZE  8
+#define UDS_RESPONSE_TIMEOUT_MS 500  // 응답 대기 시간 (500ms)
 
 // 비휘발성 메모리 저장용 차량 설정 구조체
 typedef struct {
@@ -112,6 +138,10 @@ bool diag_db_is_response_id(uint32_t can_id, data_type_t* data_type);
 bool diag_db_extract_data_value(data_type_t type, uint8_t *complete_data, uint8_t data_length, float *value);
 void diag_db_send_data_request(data_type_t type);
 const char* diag_db_get_data_type_name(data_type_t type);
+
+// UDS 응답 처리 함수
+void diag_db_handle_uds_response(uint32_t can_id);
+uint32_t diag_db_get_response_id(uint32_t request_id);
 
 // 편의 함수들 (기존 호환성)
 bool diag_db_is_steering_response(uint32_t can_id);

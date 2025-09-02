@@ -100,12 +100,12 @@ bool can_tx_message(uint32_t id, uint8_t *data, uint8_t length)
     tx_msg.length = actual_length;
     tx_msg.dlc = canGetDlc(actual_length);
     
-    cdc_printf("[CAN TX] ID: 0x%lX | Data: ", id);
-    for (int i = 0; i < actual_length; i++) {
-        cdc_printf("%02X ", tx_msg.data[i]);
-    }
-    cdc_printf("| DLC: %d | Length: %d (%s)\r\n", 
-              tx_msg.dlc, actual_length, (id_type == CAN_STD) ? "STD" : "EXT");
+    // cdc_printf("[CAN TX] ID: 0x%lX | Data: ", id);
+    // for (int i = 0; i < actual_length; i++) {
+    //     cdc_printf("%02X ", tx_msg.data[i]);
+    // }
+    // cdc_printf("| DLC: %d | Length: %d (%s)\r\n", 
+    //           tx_msg.dlc, actual_length, (id_type == CAN_STD) ? "STD" : "EXT");
     
     // CAN 전송
     if (canMsgWrite(_DEF_CAN1, &tx_msg, 100)) {
@@ -265,7 +265,7 @@ bool process_macro_command(const char* input)
     
     // "enable speed" 명령 처리 (예시)
     if (strcmp(input, "enable speed") == 0) {
-        if (diag_db_enable_data_type(DATA_TYPE_SPEED, true)) {
+        if (diag_db_enable_data_type(DATA_TYPE_SPEED_MDPS, true)) {
             cdc_printf("Speed data enabled\r\n");
             diag_db_rebuild_did_groups();
         } else {

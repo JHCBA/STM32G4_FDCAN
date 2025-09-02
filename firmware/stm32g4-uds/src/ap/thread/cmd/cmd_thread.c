@@ -18,10 +18,6 @@ bool cmdThreadInit(void)
   cmdUartInitDriver(&cmd_drvier[0], HW_UART_CH_DEBUG, 115200);
   cmdInit(&cmd[0], &cmd_drvier[0]);
   cmdOpen(&cmd[0]);
-
-  cmdUartInitDriver(&cmd_drvier[1], HW_UART_CH_EXT, 115200);
-  cmdInit(&cmd[1], &cmd_drvier[1]);
-  cmdOpen(&cmd[1]);
   return true;
 }
 
