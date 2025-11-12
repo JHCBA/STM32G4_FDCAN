@@ -182,7 +182,7 @@ bool canOpen(uint8_t ch, CanMode_t mode, CanFrame_t frame, CanBaud_t baud, CanBa
       p_can->Init.ClockDivider          = FDCAN_CLOCK_DIV1;
       p_can->Init.FrameFormat           = frame_tbl[frame];
       p_can->Init.Mode                  = mode_tbl[mode];
-      p_can->Init.AutoRetransmission    = DISABLE;
+      p_can->Init.AutoRetransmission    = ENABLE;
       p_can->Init.TransmitPause         = ENABLE;
       p_can->Init.ProtocolException     = ENABLE;
       p_can->Init.NominalPrescaler      = p_baud_normal[baud].prescaler;
@@ -440,11 +440,26 @@ bool canMsgWrite(uint8_t ch, can_msg_t *p_msg, uint32_t timeout)
   tx_header.DataLength          = dlc_tbl[p_msg->dlc];
 
 
-  if (HAL_FDCAN_GetTxFifoFreeLevel(p_can) == 0)
+  // Wait for TX FIFO space with timeout
+  pre_time = millis();
+  uint32_t free_level = HAL_FDCAN_GetTxFifoFreeLevel(p_can);
+  while (free_level == 0)
   {
-    return false;
+    if (millis() - pre_time >= timeout)
+    {
+      // Timeout - FIFO still full, abort oldest pending transmission
+      // This can happen if CAN bus has no other nodes (no ACK)
+      HAL_FDCAN_AbortTxRequest(p_can, FDCAN_TX_BUFFER0 | FDCAN_TX_BUFFER1 | FDCAN_TX_BUFFER2);
+      delay(1);  // Give time for abort to complete
+      free_level = HAL_FDCAN_GetTxFifoFreeLevel(p_can);
+      if (free_level == 0)
+      {
+        return false;
+      }
+      break;
+    }
+    free_level = HAL_FDCAN_GetTxFifoFreeLevel(p_can);
   }
-
 
   if(HAL_FDCAN_AddMessageToTxFifoQ(p_can, &tx_header, p_msg->data) != HAL_OK)
   {

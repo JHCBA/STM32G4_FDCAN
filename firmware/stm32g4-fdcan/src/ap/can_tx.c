@@ -2,6 +2,7 @@
 #include "can_manager.h"
 #include "can_db.h"
 #include "uds_handler.h"
+#include "swtimer.h"
 
 // DEBUG 출력 매크로
 #if DEBUG_CAN_PROTOCOL
@@ -10,7 +11,7 @@
 #define DEBUG_PRINT(fmt, ...) do {} while(0)
 #endif
 
-#define CAN_TX_INTERVAL_MS 10
+#define CAN_TX_INTERVAL_MS 10  // Send 2 messages per 10ms cycle
 
 // 샘플 CAN FD 메시지 정의
 typedef struct {
@@ -124,10 +125,19 @@ static const sample_can_msg_t sample_messages[] = {
 #define SAMPLE_MSG_COUNT (sizeof(sample_messages) / sizeof(sample_messages[0]))
 
 // TX 관련 정적 변수들
-static uint32_t tx_time = 0;
 static uint32_t tx_counter = 0;
 static uint32_t tx_fail_count = 0;
 static uint8_t tx_seq_counter[SAMPLE_MSG_COUNT] = {0};
+static uint32_t next_msg_index = 0;  // Round-robin starting index
+static volatile bool tx_timer_flag = false;  // Timer interrupt flag
+static swtimer_handle_t tx_timer_handle;
+
+// Timer callback function (called from interrupt)
+static void can_tx_timer_callback(void *arg)
+{
+    (void)arg;
+    tx_timer_flag = true;
+}
 
 // CAN TX 초기화
 bool can_tx_init(void)
@@ -137,13 +147,26 @@ bool can_tx_init(void)
     DEBUG_PRINT("UDS Request: 0x7D4 | 03 22 01 01 55 55 55 55\r\n");
     DEBUG_PRINT("UDS Response: 0x7DC | Multi-frame sequence\r\n");
     
-    tx_time = millis();
     tx_counter = 0;
     tx_fail_count = 0;
     
     // UDS 핸들러 초기화
     if (!uds_init()) {
         DEBUG_PRINT("UDS initialization failed\r\n");
+        return false;
+    }
+    
+    // Setup 10ms timer for CAN TX
+    tx_timer_handle = swtimerGetHandle();
+    if (tx_timer_handle >= 0)
+    {
+        swtimerSet(tx_timer_handle, CAN_TX_INTERVAL_MS, LOOP_TIME, can_tx_timer_callback, NULL);
+        swtimerStart(tx_timer_handle);
+        DEBUG_PRINT("CAN TX Timer started: %dms interval\r\n", CAN_TX_INTERVAL_MS);
+    }
+    else
+    {
+        DEBUG_PRINT("Failed to get timer handle\r\n");
         return false;
     }
     
@@ -168,15 +191,17 @@ void can_tx_process(void)
     }
     
     // UDS가 활성화되어 있지 않을 때만 샘플 메시지 송신
-    if (!uds_is_active())
+    if (!uds_is_active() && tx_timer_flag)
     {
-        while (millis() - tx_time >= CAN_TX_INTERVAL_MS)
-        {
-            uint32_t cycle_start = millis();
-            tx_time += CAN_TX_INTERVAL_MS;
+        tx_timer_flag = false;  // Clear flag
+        
+        uint32_t cycle_start = millis();
+        uint32_t sent_this_cycle = 0;
 
-            for (uint32_t msg_index = 0; msg_index < SAMPLE_MSG_COUNT; msg_index++)
-            {
+        // Try to send all messages this cycle
+        for (uint32_t i = 0; i < SAMPLE_MSG_COUNT; i++)
+        {
+            uint32_t msg_index = i;
                 const sample_can_msg_t *sample = &sample_messages[msg_index];
                 
                 can_msg_t tx_msg;
@@ -203,34 +228,28 @@ void can_tx_process(void)
 
                 if (data_length > 0)
                 {
-                    tx_msg.data[0] = tx_seq_counter[msg_index]++;
+                    tx_msg.data[0] = tx_seq_counter[msg_index];
                 }
 
-                if (canMsgWrite(_DEF_CAN1, &tx_msg, 1))
+                if (canMsgWrite(_DEF_CAN1, &tx_msg, 2))  // 2ms timeout to wait for FIFO space
                 {
                     tx_counter++;
+                    tx_seq_counter[msg_index]++;  // Only increment on success
+                    sent_this_cycle++;
+                    //DEBUG_PRINT("[%lu] OK ID=0x%03lX, cnt=0x%02X\r\n", millis(), tx_msg.id, tx_msg.data[0]);
                     ledToggle(HW_LED_CH_TX);
                     tx_fail_count = 0;
                 }
                 else
                 {
-                    tx_fail_count++;
-                    DEBUG_PRINT("[%lu ms] CAN TX Failed! ID=0x%03lX (Fail count: %lu)\r\n",
-                                millis(), sample->id, tx_fail_count);
-
-                    if (tx_fail_count >= 3)
-                    {
-                        DEBUG_PRINT("Multiple TX failures detected. Attempting CAN recovery...\r\n");
-                        can_error_recovery();
-                        tx_fail_count = 0;
-                    }
+                    // Failed to send - will retry next cycle with same counter
+                    DEBUG_PRINT("[%lu ms] TX Failed! ID=0x%03lX\r\n", millis(), sample->id);
                 }
-            }
-            
-            uint32_t cycle_end = millis();
-            DEBUG_PRINT("[%lu ms] TX Cycle: start=%lu, end=%lu, duration=%lu ms\r\n", 
-                        cycle_end, cycle_start, cycle_end, cycle_end - cycle_start);
         }
+            
+        uint32_t cycle_end = millis();
+        DEBUG_PRINT("[%lu ms] TX Cycle: sent=%lu/%lu, duration=%lu ms\r\n", 
+                    cycle_end, sent_this_cycle, (uint32_t)SAMPLE_MSG_COUNT, cycle_end - cycle_start);
     }
 }
 
