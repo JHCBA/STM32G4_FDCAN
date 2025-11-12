@@ -10,6 +10,8 @@
 #define DEBUG_PRINT(fmt, ...) do {} while(0)
 #endif
 
+#define CAN_TX_INTERVAL_MS 10
+
 // 샘플 CAN FD 메시지 정의
 typedef struct {
     uint32_t id;
@@ -17,95 +19,106 @@ typedef struct {
     uint8_t data[64];
 } sample_can_msg_t;
 
-// 실제 CAN FD 메시지 샘플들
+// 실제 CAN FD 메시지 샘플들 (DBC 기반)
 static const sample_can_msg_t sample_messages[] = {
-    // {
-    //     .id = 0x3E3,
-    //     .dlc = CAN_DLC_8,
-    //     .data = {0x7E, 0x41, 0xBB, 0x00, 0x01, 0x41, 0x00, 0x00}
-    // },
-    // {
-    //     .id = 0xEA,
-    //     .dlc = CAN_DLC_24,
-    //     .data = {0x7E, 0x41, 0xBB, 0x00, 0x01, 0x41, 0x00, 0x00, 
-    //              0x01, 0x08, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 
-    //              0xAC, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-    // },
-	 {
-		 .id = 0xA0,
-		 .dlc = CAN_DLC_24,
-		 .data = {0x7E, 0x41, 0xBB, 0x00, 0x01, 0x41, 0x00, 0x00,
-				  0x01, 0x08, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
-				  0xAC, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	 },
-    // {
-    //     .id = 0x125,
-    //     .dlc = CAN_DLC_16,
-    //     .data = {0x3E, 0x9F, 0xB3, 0xBB, 0xFF, 0x00, 0x07, 0x00, 
-    //              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-    // },
-    // {
-    //     .id = 0x60,
-    //     .dlc = CAN_DLC_32,
-    //     .data = {0x2B, 0x59, 0xE1, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    //              0x02, 0x02, 0x00, 0x02, 0x00, 0xFF, 0x00, 0xFF, 
-    //              0xAD, 0x00, 0x15, 0x00, 0x00, 0x08, 0x03, 0x01, 
-    //              0x40, 0x00, 0x00, 0x04, 0xFF, 0xFA, 0x00, 0x00}
-    // },
-    // {
-    //     .id = 0x100,
-    //     .dlc = CAN_DLC_32,
-    //     .data = {0xED, 0xA6, 0xF6, 0x00, 0x11, 0xAD, 0x7E, 0x6C, 
-    //              0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x57, 
-    //              0x23, 0x00, 0x48, 0x00, 0xE5, 0x00, 0x00, 0x00, 
-    //              0xFE, 0x0F, 0x00, 0x90, 0x93, 0x00, 0x00, 0x00}
-    // },
-    // UDS 진단 메시지들 (순서대로 정렬)
-//    {
-//        .id = 0x7E1,  // [1] Diagnostic Request
-//        .dlc = CAN_DLC_8,
-//        .data = {0x03, 0x22, 0xC1, 0x01, 0x00, 0x00, 0x00, 0x00}
-//    },
-//    {
-//        .id = 0x7E9,  // [2] First Frame Response
-//        .dlc = CAN_DLC_8,
-//        .data = {0x10, 0x2A, 0x62, 0xC1, 0x01, 0x48, 0xD7, 0xE7}
-//    },
-//    {
-//        .id = 0x7E1,  // [3] Flow Control
-//        .dlc = CAN_DLC_8,
-//        .data = {0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-//    },
-//    {
-//        .id = 0x7E9,  // [4] Consecutive Frame 1
-//        .dlc = CAN_DLC_8,
-//        .data = {0x21, 0x00, 0xFF, 0x7F, 0x00, 0x00, 0x00, 0x00}
-//    },
-//    {
-//        .id = 0x7E9,  // [5] Consecutive Frame 2
-//        .dlc = CAN_DLC_8,
-//        .data = {0x22, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF}
-//    },
-//    {
-//        .id = 0x7E9,  // [6] Consecutive Frame 3
-//        .dlc = CAN_DLC_8,
-//        .data = {0x23, 0xFF, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00}
-//    },
-//    {
-//        .id = 0x7E9,  // [7] Consecutive Frame 4
-//        .dlc = CAN_DLC_8,
-//        .data = {0x24, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x00, 0x00}
-//    },
-//    {
-//        .id = 0x7E9,  // [8] Consecutive Frame 5
-//        .dlc = CAN_DLC_8,
-//        .data = {0x25, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0xFF}
-//    },
-//    {
-//        .id = 0x7E9,  // [9] Consecutive Frame 6
-//        .dlc = CAN_DLC_8,
-//        .data = {0x26, 0xFF, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA}
-//    }
+    // TPMS_01_200ms (ID: 928 = 0x3A0, 16 bytes)
+    // Tire Pressure (PSI): FL=32, FR=32, RL=30, RR=30
+    // Signal start bit 32, 40, 48, 56 (각 8bit, scale=1, offset=0)
+   {
+       .id = 0x3A0,
+       .dlc = CAN_DLC_16,
+       .data = {0x00, 0x00, 0x00, 0x00, 0x20, 0x20, 0x1E, 0x1E,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+   },
+   // WHL_01_10ms (ID: 160 = 0xA0, 24 bytes)
+   // Wheel Speed (km/h): FL=60, FR=60, RL=60, RR=60
+   // Start bit 64, 80, 96, 112 (각 14bit, scale=0.03125)
+   // 60km/h = 60/0.03125 = 1920 = 0x780
+   {
+       .id = 0xA0,
+       .dlc = CAN_DLC_24,
+       .data = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x80, 0x07, 0x80, 0x07, 0x80, 0x07, 0x80, 0x07,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+   },
+   // MCU_01_10ms (ID: 266 = 0x10A, 32 bytes)
+   // Motor1 Speed: 1500rpm (bit 24, 16bit, scale=1)
+   // Motor1 Torque: 40Nm (bit 192, 14bit, scale=0.125) -> 40/0.125=320=0x140
+   {
+       .id = 0x10A,
+       .dlc = CAN_DLC_32,
+       .data = {0x00, 0x00, 0x00, 0x05, 0xDC, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x40, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+   },
+   // MCU_02_10ms (ID: 288 = 0x120, 32 bytes)
+   // Motor2 Speed: 1500rpm (bit 24, 16bit, scale=1)
+   // Motor2 Torque: 35Nm (bit 192, 14bit, scale=0.125) -> 35/0.125=280=0x118
+   {
+       .id = 0x120,
+       .dlc = CAN_DLC_32,
+       .data = {0x00, 0x00, 0x00, 0x05, 0xDC, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x18, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+   },
+   // CLU_01_20ms (ID: 426 = 0x1AA, 16 bytes)
+   // Display Speed: 65 km/h (bit 64, 9bit, scale=1)
+   {
+       .id = 0x1AA,
+       .dlc = CAN_DLC_16,
+       .data = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+   },
+   // IMU_01_10ms / YRS_01_10ms (ID: 74 = 0x4A, 32 bytes)
+   // Yaw Rate: 0 deg/s (bit 64, 16bit, scale=0.005, offset=-163.84)
+   //   -> (0+163.84)/0.005 = 32768 = 0x8000
+   // Long Accel: 0.15g (bit 96, 16bit, scale=0.00012746, offset=-4.17677312)
+   //   -> (0.15+4.17677312)/0.00012746 = 33949 = 0x849D
+   {
+       .id = 0x4A,
+       .dlc = CAN_DLC_32,
+       .data = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x80, 0x00, 0x00, 0x9D, 0x84, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+   },
+   // ICU_02_200ms (ID: 1041 = 0x411, 8 bytes)
+   // Seatbelt Status: All buckled (value=2 for each 2-bit signal)
+   // Bits: 36(Asst), 42(Drv), 50(RrCtr), 54(RrLft), 58(RrRt)
+   {
+       .id = 0x411,
+       .dlc = CAN_DLC_8,
+       .data = {0x00, 0x00, 0x00, 0x00, 0x20, 0x0A, 0x8A, 0x00}
+   },
+   // BCM_10_200ms (ID: 1058 = 0x422, 8 bytes)
+   // Wiper Parking Position: 1 (bit 16, 2-bit, scale=0.5)
+   {
+       .id = 0x422,
+       .dlc = CAN_DLC_8,
+       .data = {0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00}
+   },
+   // CLU_02_100ms (ID: 549 = 0x225, 16 bytes)
+   // Odometer: 5432.1 km (bit 72, 24bit, scale=0.1)
+   //   -> 5432.1/0.1 = 54321 = 0xD431
+   {
+       .id = 0x225,
+       .dlc = CAN_DLC_16,
+       .data = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x31, 0xD4, 0x00, 0x00, 0x00, 0x00, 0x00}
+   },
+    // DATC_01_20ms (ID: 325 = 0x145, 32 bytes)
+    // Outside Temperature: 20C (bit 168=byte21, 8bit, scale=0.5, offset=-40)
+    //   -> (20+40)/0.5 = 120 = 0x78
+    {
+        .id = 0x145,
+        .dlc = CAN_DLC_32,
+        .data = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                 0x00, 0x00, 0x00, 0x00, 0x00, 0x78, 0x00, 0x00,
+                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+    }
 };
 
 #define SAMPLE_MSG_COUNT (sizeof(sample_messages) / sizeof(sample_messages[0]))
@@ -114,6 +127,7 @@ static const sample_can_msg_t sample_messages[] = {
 static uint32_t tx_time = 0;
 static uint32_t tx_counter = 0;
 static uint32_t tx_fail_count = 0;
+static uint8_t tx_seq_counter[SAMPLE_MSG_COUNT] = {0};
 
 // CAN TX 초기화
 bool can_tx_init(void)
@@ -154,62 +168,69 @@ void can_tx_process(void)
     }
     
     // UDS가 활성화되어 있지 않을 때만 샘플 메시지 송신
-    if (!uds_is_active() && millis() - tx_time >= 100)  // 100ms마다 송신 (순서 확인용)
+    if (!uds_is_active())
     {
-        tx_time = millis();
-        
-        // 샘플 메시지 중 하나를 순차적으로 선택
-        uint32_t msg_index = tx_counter % SAMPLE_MSG_COUNT;
-        const sample_can_msg_t *sample = &sample_messages[msg_index];
-        
-        can_msg_t tx_msg;
-        canMsgInit(&tx_msg, CAN_FD_BRS, CAN_STD, sample->dlc);
-        tx_msg.id = sample->id;
-        
-        // 샘플 데이터 복사 (카운터 추가로 변화 표시)
-        uint8_t data_length = 0;//canGetLen(sample->dlc);
-        if (data_length > 0)
+        while (millis() - tx_time >= CAN_TX_INTERVAL_MS)
         {
-            for (int i = 0; i < data_length; i++)
+            uint32_t cycle_start = millis();
+            tx_time += CAN_TX_INTERVAL_MS;
+
+            for (uint32_t msg_index = 0; msg_index < SAMPLE_MSG_COUNT; msg_index++)
             {
-                if (i < 4)  // 처음 4바이트에 변화하는 데이터 추가
+                const sample_can_msg_t *sample = &sample_messages[msg_index];
+                
+                can_msg_t tx_msg;
+                canMsgInit(&tx_msg, CAN_FD_BRS, CAN_STD, sample->dlc);
+                tx_msg.id = sample->id;
+
+                uint8_t data_length = canGetLen(sample->dlc);
+                if (data_length == 0)
                 {
-                    tx_msg.data[i] = sample->data[i];// ^ (tx_counter & 0xFF);
+                    continue;
+                }
+
+                for (int i = 0; i < data_length; i++)
+                {
+                    if (i < 4)
+                    {
+                        tx_msg.data[i] = sample->data[i]; // 필요 시 변화 데이터 삽입 가능
+                    }
+                    else
+                    {
+                        tx_msg.data[i] = sample->data[i];
+                    }
+                }
+
+                if (data_length > 0)
+                {
+                    tx_msg.data[0] = tx_seq_counter[msg_index]++;
+                }
+
+                if (canMsgWrite(_DEF_CAN1, &tx_msg, 1))
+                {
+                    tx_counter++;
+                    ledToggle(HW_LED_CH_TX);
+                    tx_fail_count = 0;
                 }
                 else
                 {
-                    tx_msg.data[i] = sample->data[i];
+                    tx_fail_count++;
+                    DEBUG_PRINT("[%lu ms] CAN TX Failed! ID=0x%03lX (Fail count: %lu)\r\n",
+                                millis(), sample->id, tx_fail_count);
+
+                    if (tx_fail_count >= 3)
+                    {
+                        DEBUG_PRINT("Multiple TX failures detected. Attempting CAN recovery...\r\n");
+                        can_error_recovery();
+                        tx_fail_count = 0;
+                    }
                 }
             }
             
-            if (canMsgWrite(_DEF_CAN1, &tx_msg, 10))
-            {
-                DEBUG_PRINT("CAN TX [%lu/%d]: ID=0x%03lX, DLC=%d, Data=", 
-                        msg_index + 1, SAMPLE_MSG_COUNT, tx_msg.id, data_length);
-                for (int i = 0; i < data_length; i++)
-                {
-                    DEBUG_PRINT("%02X ", tx_msg.data[i]);
-                }
-                DEBUG_PRINT("(Total=%lu)\r\n", tx_counter);
-                ledToggle(HW_LED_CH_TX);
-                tx_fail_count = 0; // 송신 성공 시 실패 카운터 리셋
-            }
-            else
-            {
-                tx_fail_count++;
-                DEBUG_PRINT("CAN TX Failed! ID=0x%03lX (Fail count: %lu)\r\n", sample->id, tx_fail_count);
-                
-                // 연속 실패 시 복구 시도
-                if (tx_fail_count >= 3)
-                {
-                    DEBUG_PRINT("Multiple TX failures detected. Attempting CAN recovery...\r\n");
-                    can_error_recovery();
-                    tx_fail_count = 0;
-                }
-            }
+            uint32_t cycle_end = millis();
+            DEBUG_PRINT("[%lu ms] TX Cycle: start=%lu, end=%lu, duration=%lu ms\r\n", 
+                        cycle_end, cycle_start, cycle_end, cycle_end - cycle_start);
         }
-        
-        tx_counter++;
     }
 }
 

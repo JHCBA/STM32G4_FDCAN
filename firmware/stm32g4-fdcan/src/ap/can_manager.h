@@ -25,12 +25,11 @@ typedef enum {
 
 // 모든 CAN ID 수신을 위한 구조체 (메모리 절약)
 typedef struct {
-    uint32_t id;             // CAN ID
-    can_msg_t msg;           // CAN 메시지
-    bool has_data;           // 데이터 유무
-    uint16_t rx_count;       // 수신 카운터 (16비트로 축소)
+    can_msg_t msg;           // 마지막 수신 메시지 (CAN ID 포함)
     uint32_t last_output_time; // 마지막 출력 시간
     uint32_t last_rx_time;   // 마지막 수신 시간
+    uint16_t rx_count;       // 수신 카운터 (16비트로 축소)
+    bool has_data;           // 데이터 유무
 } all_can_tracker_t;
 
 // SCAN 모드를 위한 구조체 (메모리 최소화)
@@ -113,7 +112,7 @@ bool can_debug_mode_init(void);
 void can_debug_mode_process(void);
 bool can_scan_mode_init(void);
 void can_scan_mode_process(void);
-void can_output_raw_message(uint32_t can_id, const can_msg_t *msg);
+void can_output_raw_message(uint32_t can_id, const can_msg_t *msg, uint32_t total_count, uint16_t interval_count);
 void can_mode_switch(void);
 void can_print_mode_info(void);
 void can_set_all_listen_timeout(uint32_t timeout_ms);

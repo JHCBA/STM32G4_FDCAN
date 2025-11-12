@@ -446,20 +446,7 @@ bool canMsgWrite(uint8_t ch, can_msg_t *p_msg, uint32_t timeout)
   }
 
 
-  pre_time = millis();
-  if(HAL_FDCAN_AddMessageToTxFifoQ(p_can, &tx_header, p_msg->data) == HAL_OK)
-  {
-    /* Wait transmission complete */
-    while(HAL_FDCAN_GetTxFifoFreeLevel(p_can) == 0)
-    {
-      if (millis()-pre_time >= timeout)
-      {
-        ret = false;
-        break;
-      }
-    }
-  }
-  else
+  if(HAL_FDCAN_AddMessageToTxFifoQ(p_can, &tx_header, p_msg->data) != HAL_OK)
   {
     ret = false;
   }

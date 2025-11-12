@@ -14,7 +14,7 @@ bool is_can_mode = true;  // 간단한 CAN 모드
 // TX 테스트용 보드: #define CAN_TEST_MODE_TX true
 // RX 테스트용 보드: #define CAN_TEST_MODE_TX false  
 // ===============================================
-#define CAN_TEST_MODE_TX    true   // true: TX 송신 모드, false: RX 수신 모드
+#define CAN_TEST_MODE_TX   true   // true: TX 송신 모드, false: RX 수신 모드
 bool can_test_tx_mode = CAN_TEST_MODE_TX;
 
 // CAN 모드 설정
@@ -24,7 +24,7 @@ bool can_test_tx_mode = CAN_TEST_MODE_TX;
 // 2: CAN_RELEASE - 필터링된 CAN ID를 프로토콜로 변환하여 송신
 // 3: CAN_DEBUG_MODE - 디버깅 모드 (CAN과 무관하게 UART만 출력)
 // ===============================================
-#define CAN_MODE_SETTING    CAN_RELEASE
+#define CAN_MODE_SETTING    CAN_FILTER_LISTEN
 
 // UART 테스트 함수
 void uart_test_send_message(void)

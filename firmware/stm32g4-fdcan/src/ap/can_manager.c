@@ -16,6 +16,16 @@
 static const uint32_t debug_can_ids[] = {
     //0xEA,   // MDPS (Steering Angle)
     0xA0,   // WHEEL_SPEEDS (Vehicle Speed)
+    0x3A0,   // WHEEL_SPEEDS (Vehicle Speed)
+    0x10A,   // WHEEL_SPEEDS (Vehicle Speed)
+    0x120,   // WHEEL_SPEEDS (Vehicle Speed)
+    0x1AA,   // WHEEL_SPEEDS (Vehicle Speed)
+    0x4A,   // WHEEL_SPEEDS (Vehicle Speed)
+    0x411,   // WHEEL_SPEEDS (Vehicle Speed)
+    0x422,   // WHEEL_SPEEDS (Vehicle Speed)
+	0x225,   // WHEEL_SPEEDS (Vehicle Speed)
+	0x145,   // WHEEL_SPEEDS (Vehicle Speed)
+//   0x120,   // WHEEL_SPEEDS (Vehicle Speed)
     //0x60,   // BPS
     //0x100,  // ACCELERATOR_BRAKE_ALT (BPS)
     //0x40,   // GEAR_ALT_2 (Gear)
@@ -34,20 +44,20 @@ static bool is_debug_can_id(uint32_t can_id) {
             return true;
         }
     }
-    return true;
+    return false;
 }
 
 // CAN 모드 설정
 can_mode_t current_can_mode = CAN_FILTER_LISTEN;  // 기본값: 필터 리스닝 모드
 
 // RX 관련 변수들
-#define MAX_RX_IDS 30  // 최대 추적할 수 있는 CAN ID 개수
+#define MAX_RX_IDS 107  // 최대 추적할 수 있는 CAN ID 개수
 static uint32_t rx_display_time = 0;
 // 모든 CAN ID 수신을 위한 설정
 #define MAX_ALL_CAN_IDS MAX_RX_IDS  // 최대 추적할 수 있는 모든 CAN ID 개수 (메모리 절약)
 static all_can_tracker_t all_can_trackers[MAX_ALL_CAN_IDS];
 static uint8_t all_can_active_count = 0;
-static uint32_t all_can_output_period = 1000;  // 기본 출력 주기: 1000ms
+static uint32_t all_can_output_period = 10;  // 기본 출력 주기: 1000ms
 static uint32_t all_can_timeout_period = 3000;  // 타임아웃 주기: 3000ms (3초)
 
 // 디버깅 모드를 위한 설정
@@ -55,16 +65,19 @@ static uint32_t debug_output_time = 0;
 static uint32_t debug_counter = 0;
 
 // SCAN 모드를 위한 설정
-#define MAX_SCAN_IDS 500  // 최대 추적할 수 있는 CAN ID 개수
+#define MAX_SCAN_IDS 107  // 최대 추적할 수 있는 CAN ID 개수
 static scan_can_tracker_t scan_trackers[MAX_SCAN_IDS];
 static uint8_t scan_active_count = 0;
-static uint32_t scan_output_period = 2000;  // 출력 주기: 1000ms
-static uint32_t scan_timeout_period = 1000;  // 타임아웃 주기: 1000ms
+static uint32_t scan_output_period = 1000;  // 출력 주기: 1000ms
+static uint32_t scan_timeout_period = 30000;  // 타임아웃 주기: 1000ms
 
 
 
 // 필터링할 CAN ID 목록
 #define FILTERED_ID_COUNT 10
+#define FILTER_LISTEN_MIN_TIMEOUT_MS 200
+#define FILTER_LISTEN_TIMEOUT_MULTIPLIER 5
+#define FILTER_LISTEN_UNMAPPED_TIMEOUT_MS 1000
 
 #define PERIOD_100MS 100
 #define PERIOD_1000MS 1000
@@ -72,15 +85,15 @@ static uint32_t scan_timeout_period = 1000;  // 타임아웃 주기: 1000ms
 // CAN ID to Protocol ID 매핑 테이블
 // 필터링된 CAN ID들을 순서대로 프로토콜 Data ID로 매핑
 static const can_to_protocol_map_t can_protocol_map[] = {
-    {0xA0,  PROTOCOL_ID_VEHICLE_SPEED,   PERIOD_100MS},  // Vehicle Speed
-    {0x60,  PROTOCOL_ID_BPS,            PERIOD_100MS},  // APS
-    {0x100, PROTOCOL_ID_APS,            PERIOD_100MS},  // BPS
-    {0xEA,  PROTOCOL_ID_STEERING_ANGLE, PERIOD_100MS},  // Steering Angle
-    {0x125, PROTOCOL_ID_EPS_ERR,        PERIOD_100MS},  // EPS Error
-    {0x40, PROTOCOL_ID_GEAR,    PERIOD_100MS},  // Gear Status
-    {0x413, PROTOCOL_ID_TURN_SIGNAL,    PERIOD_100MS},  // Turn Signal
-    {0x411, PROTOCOL_ID_DOOR_OPEN,     PERIOD_1000MS},  // Door Open
-    {0x411, PROTOCOL_ID_SEAT_BELT,      PERIOD_1000MS},  // Seat Belt
+//    {0xA0,  PROTOCOL_ID_VEHICLE_SPEED,   PERIOD_100MS},  // Vehicle Speed
+//    {0x60,  PROTOCOL_ID_BPS,            PERIOD_100MS},  // APS
+//    {0x100, PROTOCOL_ID_APS,            PERIOD_100MS},  // BPS
+//    {0xEA,  PROTOCOL_ID_STEERING_ANGLE, PERIOD_100MS},  // Steering Angle
+//    {0x125, PROTOCOL_ID_EPS_ERR,        PERIOD_100MS},  // EPS Error
+//    {0x40, PROTOCOL_ID_GEAR,    PERIOD_100MS},  // Gear Status
+//    {0x413, PROTOCOL_ID_TURN_SIGNAL,    PERIOD_100MS},  // Turn Signal
+//    {0x411, PROTOCOL_ID_DOOR_OPEN,     PERIOD_1000MS},  // Door Open
+//    {0x411, PROTOCOL_ID_SEAT_BELT,      PERIOD_1000MS},  // Seat Belt
     {0x1BA, PROTOCOL_ID_RADAR,          PERIOD_100MS},  // Radar
 };
 
@@ -98,7 +111,7 @@ static const char* protocol_descriptions[] = {
     [PROTOCOL_ID_DOOR_OPEN] = "Door Open",
     [PROTOCOL_ID_SEAT_BELT] = "Seat Belt",
     [PROTOCOL_ID_RADAR] = "Radar Status"
-};
+};  
 
 // 정적 변수들
 static uint32_t error_check_time = 0;
@@ -110,14 +123,23 @@ static bool protocol_initialized = false;
 
 
 typedef struct {
-    uint32_t id;
     can_msg_t msg;
-    bool has_data;
-    uint16_t rx_count;           // 수신 카운터 (16비트로 축소)
     uint32_t last_protocol_time;  // 마지막 프로토콜 전송 시간
+    uint32_t last_rx_time;        // 마지막 수신 시간
+    uint16_t rx_count;           // 출력 시점 이후 수신 카운터
+    uint32_t total_count;        // 누적 수신 카운터
+    bool has_data;
 } rx_id_tracker_t;
 
-static rx_id_tracker_t rx_trackers[MAX_RX_IDS];
+typedef union {
+    rx_id_tracker_t rx[MAX_RX_IDS];
+    all_can_tracker_t all[MAX_ALL_CAN_IDS];
+} can_tracker_pool_t;
+
+static can_tracker_pool_t can_tracker_pool;
+#define rx_trackers      (can_tracker_pool.rx)
+#define all_can_trackers (can_tracker_pool.all)
+
 static uint8_t active_id_count = 0;
 
 // 프로토콜 관련 함수들 구현
@@ -584,7 +606,8 @@ bool can_manager_init(bool tx_mode)
     }
     
     //if (canOpen(_DEF_CAN1, can_mode, CAN_FD_BRS, CAN_500K, CAN_2M) == false)
-    if (canOpen(_DEF_CAN1, can_mode, CAN_CLASSIC, CAN_500K, CAN_2M) == false)
+    if (canOpen(_DEF_CAN1, can_mode, CAN_FD_NO_BRS, CAN_500K, CAN_2M) == false)
+    //if (canOpen(_DEF_CAN1, can_mode, CAN_CLASSIC, CAN_500K, CAN_2M) == false)
     {
         DEBUG_PRINT("CAN init failed\r\n");
         return false;
@@ -687,10 +710,12 @@ bool can_rx_init(void)
     rx_display_time = millis();
     // Initialize trackers
     for (int i = 0; i < MAX_RX_IDS; i++) {
-        rx_trackers[i].id = 0;
+        rx_trackers[i].msg.id = 0;
         rx_trackers[i].has_data = false;
         rx_trackers[i].rx_count = 0;
+        rx_trackers[i].total_count = 0;
         rx_trackers[i].last_protocol_time = 0;
+        rx_trackers[i].last_rx_time = 0;
     }
     active_id_count = 0;
     
@@ -731,7 +756,7 @@ void can_rx_process(void)
                 // 해당 ID의 추적기 찾기
                 int tracker_index = -1;
                 for (int i = 0; i < MAX_RX_IDS; i++) {
-                    if (rx_trackers[i].has_data && rx_trackers[i].id == rx_msg.id) {
+                    if (rx_trackers[i].has_data && rx_trackers[i].msg.id == rx_msg.id) {
                         tracker_index = i;
                         break;
                     }
@@ -742,7 +767,7 @@ void can_rx_process(void)
                     for (int i = 0; i < MAX_RX_IDS; i++) {
                         if (!rx_trackers[i].has_data) {
                             tracker_index = i;
-                            rx_trackers[i].id = rx_msg.id;
+                            rx_trackers[i].msg.id = rx_msg.id;
                             rx_trackers[i].has_data = true;
                             rx_trackers[i].rx_count = 0;
                             rx_trackers[i].last_protocol_time = 0;
@@ -755,6 +780,9 @@ void can_rx_process(void)
                 if (tracker_index != -1) {
                     rx_trackers[tracker_index].msg = rx_msg;
                     rx_trackers[tracker_index].rx_count++;
+                    if (rx_trackers[tracker_index].rx_count == 0) {
+                        rx_trackers[tracker_index].rx_count = 0; // overflow 시 0으로 초기화
+                    }
                 }
             }
             // 매핑되지 않은 CAN ID는 무시 (프로토콜 출력하지 않음)
@@ -768,11 +796,11 @@ void can_rx_process(void)
     for (int i = 0; i < MAX_RX_IDS; i++) {
         if (rx_trackers[i].has_data) {
             protocol_data_id_t data_id;
-            if (protocol_map_can_to_data_id(rx_trackers[i].id, &data_id)) {
+            if (protocol_map_can_to_data_id(rx_trackers[i].msg.id, &data_id)) {
                 // 해당 ID의 전송 주기 확인
                 uint32_t period_ms = 0;
                 for (int j = 0; j < CAN_PROTOCOL_MAP_SIZE; j++) {
-                    if (can_protocol_map[j].can_id == rx_trackers[i].id) {
+                    if (can_protocol_map[j].can_id == rx_trackers[i].msg.id) {
                         period_ms = can_protocol_map[j].period_ms;
                         break;
                     }
@@ -782,7 +810,7 @@ void can_rx_process(void)
                 if (current_time - rx_trackers[i].last_protocol_time >= period_ms) {
                     // DEBUG_CAN이 활성화된 경우 디버그 목록의 ID만 처리
 #if DEBUG_CAN
-                    if (!is_debug_can_id(rx_trackers[i].id)) {
+                    if (!is_debug_can_id(rx_trackers[i].msg.id)) {
                         rx_trackers[i].last_protocol_time = current_time;
                         continue;  // 디버그 목록에 없는 ID는 건너뛰기
                     }
@@ -792,7 +820,7 @@ void can_rx_process(void)
                     uint8_t protocol_data[PROTOCOL_MAX_DATA];
                     uint8_t protocol_length;
                     
-                    if (protocol_convert_can_data(rx_trackers[i].id, rx_trackers[i].msg.data, 
+                    if (protocol_convert_can_data(rx_trackers[i].msg.id, rx_trackers[i].msg.data, 
                                                 rx_trackers[i].msg.length, protocol_data, &protocol_length)) {
                         // 프로토콜 프레임 전송
                         if (protocol_send_frame(data_id, protocol_data, protocol_length)) {
@@ -824,13 +852,13 @@ void can_rx_process(void)
             for (int i = 0; i < MAX_RX_IDS; i++) {
                 if (rx_trackers[i].has_data) {
                     protocol_data_id_t data_id;
-                    if (protocol_map_can_to_data_id(rx_trackers[i].id, &data_id)) {
+                    if (protocol_map_can_to_data_id(rx_trackers[i].msg.id, &data_id)) {
                         DEBUG_PRINT("ID=0x%03lX->0x%02X, Count=%u, DLC=%d\r\n", 
-                                   rx_trackers[i].id, (uint8_t)data_id, 
+                                   rx_trackers[i].msg.id, (uint8_t)data_id, 
                                    rx_trackers[i].rx_count, rx_trackers[i].msg.length);
                     } else {
                         DEBUG_PRINT("ID=0x%03lX (unmapped), Count=%u, DLC=%d\r\n", 
-                                   rx_trackers[i].id, rx_trackers[i].rx_count, rx_trackers[i].msg.length);
+                                   rx_trackers[i].msg.id, rx_trackers[i].rx_count, rx_trackers[i].msg.length);
                     }
                 }
             }
@@ -931,7 +959,7 @@ bool can_all_listen_init(void)
     
     // 모든 CAN ID 추적기 초기화
     for (int i = 0; i < MAX_ALL_CAN_IDS; i++) {
-        all_can_trackers[i].id = 0;
+        all_can_trackers[i].msg.id = 0;
         all_can_trackers[i].has_data = false;
         all_can_trackers[i].rx_count = 0;
         all_can_trackers[i].last_output_time = 0;
@@ -956,7 +984,7 @@ void can_all_listen_process(void)
             // 해당 ID의 추적기 찾기
             int tracker_index = -1;
             for (int i = 0; i < MAX_ALL_CAN_IDS; i++) {
-                if (all_can_trackers[i].has_data && all_can_trackers[i].id == rx_msg.id) {
+                if (all_can_trackers[i].has_data && all_can_trackers[i].msg.id == rx_msg.id) {
                     tracker_index = i;
                     break;
                 }
@@ -967,7 +995,7 @@ void can_all_listen_process(void)
                 for (int i = 0; i < MAX_ALL_CAN_IDS; i++) {
                     if (!all_can_trackers[i].has_data) {
                         tracker_index = i;
-                        all_can_trackers[i].id = rx_msg.id;
+                        all_can_trackers[i].msg.id = rx_msg.id;
                         all_can_trackers[i].has_data = true;
                         all_can_trackers[i].rx_count = 0;
                         all_can_trackers[i].last_output_time = 0;
@@ -983,7 +1011,9 @@ void can_all_listen_process(void)
             if (tracker_index != -1) {
                 all_can_trackers[tracker_index].msg = rx_msg;
                 all_can_trackers[tracker_index].rx_count++;
-                all_can_trackers[tracker_index].last_rx_time = current_time;
+                if (all_can_trackers[tracker_index].rx_count == 0) {
+                    all_can_trackers[tracker_index].rx_count = 0; // overflow 초기화
+                }
             }
             
             ledToggle(HW_LED_CH_RX);
@@ -995,9 +1025,9 @@ void can_all_listen_process(void)
         if (all_can_trackers[i].has_data) {
             if (current_time - all_can_trackers[i].last_rx_time >= all_can_timeout_period) {
                 DEBUG_PRINT("TIMEOUT CAN ID: 0x%lX (Count: %u)\r\n", 
-                           all_can_trackers[i].id, all_can_trackers[i].rx_count);
+                           all_can_trackers[i].msg.id, all_can_trackers[i].rx_count);
                 // 타임아웃된 ID 삭제
-                all_can_trackers[i].id = 0;
+                all_can_trackers[i].msg.id = 0;
                 all_can_trackers[i].has_data = false;
                 all_can_trackers[i].rx_count = 0;
                 all_can_trackers[i].last_output_time = 0;
@@ -1011,7 +1041,8 @@ void can_all_listen_process(void)
     for (int i = 0; i < MAX_ALL_CAN_IDS; i++) {
         if (all_can_trackers[i].has_data) {
             if (current_time - all_can_trackers[i].last_output_time >= all_can_output_period) {
-                can_output_raw_message(all_can_trackers[i].id, &all_can_trackers[i].msg);
+                can_output_raw_message(all_can_trackers[i].msg.id, &all_can_trackers[i].msg,
+                                       all_can_trackers[i].rx_count, 0);
                 all_can_trackers[i].last_output_time = current_time;
             }
         }
@@ -1029,7 +1060,7 @@ bool can_filter_listen_init(void)
     // 기존 RX 초기화와 동일하지만 프로토콜 변환 없이 출력
     rx_display_time = millis();
     for (int i = 0; i < MAX_RX_IDS; i++) {
-        rx_trackers[i].id = 0;
+        rx_trackers[i].msg.id = 0;
         rx_trackers[i].has_data = false;
         rx_trackers[i].rx_count = 0;
         rx_trackers[i].last_protocol_time = 0;
@@ -1048,10 +1079,11 @@ void can_filter_listen_process(void)
         can_msg_t rx_msg;
         if (canMsgRead(_DEF_CAN1, &rx_msg))
         {
+            uint32_t msg_time = millis();
             // 해당 ID의 추적기 찾기
             int tracker_index = -1;
             for (int i = 0; i < MAX_RX_IDS; i++) {
-                if (rx_trackers[i].has_data && rx_trackers[i].id == rx_msg.id) {
+                if (rx_trackers[i].has_data && rx_trackers[i].msg.id == rx_msg.id) {
                     tracker_index = i;
                     break;
                 }
@@ -1062,10 +1094,12 @@ void can_filter_listen_process(void)
                 for (int i = 0; i < MAX_RX_IDS; i++) {
                     if (!rx_trackers[i].has_data) {
                         tracker_index = i;
-                        rx_trackers[i].id = rx_msg.id;
+                        rx_trackers[i].msg.id = rx_msg.id;
                         rx_trackers[i].has_data = true;
                         rx_trackers[i].rx_count = 0;
+                        rx_trackers[i].total_count = 0;
                         rx_trackers[i].last_protocol_time = 0;
+                        rx_trackers[i].last_rx_time = msg_time;
                         break;
                     }
                 }
@@ -1075,6 +1109,8 @@ void can_filter_listen_process(void)
             if (tracker_index != -1) {
                 rx_trackers[tracker_index].msg = rx_msg;
                 rx_trackers[tracker_index].rx_count++;
+                rx_trackers[tracker_index].total_count++;
+                rx_trackers[tracker_index].last_rx_time = msg_time;
             }
             
             ledToggle(HW_LED_CH_RX);
@@ -1086,74 +1122,122 @@ void can_filter_listen_process(void)
     for (int i = 0; i < MAX_RX_IDS; i++) {
         if (rx_trackers[i].has_data) {
             protocol_data_id_t data_id;
-            bool is_mapped = protocol_map_can_to_data_id(rx_trackers[i].id, &data_id);
-            
+            bool is_mapped = protocol_map_can_to_data_id(rx_trackers[i].msg.id, &data_id);
+
+            uint32_t output_period_ms = all_can_output_period;
             if (is_mapped) {
-                // 매핑된 ID: 설정된 주기로 출력
-                uint32_t period_ms = 0;
                 for (int j = 0; j < CAN_PROTOCOL_MAP_SIZE; j++) {
-                    if (can_protocol_map[j].can_id == rx_trackers[i].id) {
-                        period_ms = can_protocol_map[j].period_ms;
+                    if (can_protocol_map[j].can_id == rx_trackers[i].msg.id) {
+                        output_period_ms = can_protocol_map[j].period_ms;
                         break;
                     }
                 }
+            }
+
+            uint32_t base_period_ms = is_mapped ? output_period_ms : FILTER_LISTEN_UNMAPPED_TIMEOUT_MS;
+            if (base_period_ms == 0) {
+                base_period_ms = FILTER_LISTEN_UNMAPPED_TIMEOUT_MS;
+            }
+
+            uint32_t timeout_ms = base_period_ms * FILTER_LISTEN_TIMEOUT_MULTIPLIER;
+            if (timeout_ms < FILTER_LISTEN_MIN_TIMEOUT_MS) {
+                timeout_ms = FILTER_LISTEN_MIN_TIMEOUT_MS;
+            }
+
+            if (current_time - rx_trackers[i].last_rx_time >= timeout_ms) {
+                rx_trackers[i].has_data = false;
+                continue;
+            }
+            
+            if (!is_debug_can_id(rx_trackers[i].msg.id)) {
+                rx_trackers[i].last_protocol_time = current_time;
+                continue;
+            }
+
+            if (is_mapped) {
+                // 매핑된 ID: 설정된 주기로 출력
+                uint32_t mapped_period_ms = output_period_ms;
+                if (mapped_period_ms == 0) {
+                    mapped_period_ms = FILTER_LISTEN_UNMAPPED_TIMEOUT_MS;
+                }
                 
-                if (current_time - rx_trackers[i].last_protocol_time >= period_ms) {
+                if (current_time - rx_trackers[i].last_protocol_time >= mapped_period_ms) {
                     // 프로토콜 데이터 변환 및 설명과 함께 출력
                     uint8_t protocol_data[PROTOCOL_MAX_DATA];
                     uint8_t protocol_length;
                     
-                    if (protocol_convert_can_data(rx_trackers[i].id, rx_trackers[i].msg.data, 
+                    if (protocol_convert_can_data(rx_trackers[i].msg.id, rx_trackers[i].msg.data, 
                                                 rx_trackers[i].msg.length, protocol_data, &protocol_length)) {
                         // CAN 메시지 먼저 출력
-                        can_output_raw_message(rx_trackers[i].id, &rx_trackers[i].msg);
+                        can_output_raw_message(rx_trackers[i].msg.id, &rx_trackers[i].msg, 
+                                               rx_trackers[i].total_count, rx_trackers[i].rx_count);
                         
                         if (DEBUG_CAN)
                         {
                             // 그 다음 프로토콜 메시지 출력
-                            can_output_protocol_message(rx_trackers[i].id, &rx_trackers[i].msg, data_id, protocol_data, protocol_length);
+                            can_output_protocol_message(rx_trackers[i].msg.id, &rx_trackers[i].msg, data_id, protocol_data, protocol_length);
                         }
                     } else {
                         // 변환 실패 시 원본 메시지 출력
-                        can_output_raw_message(rx_trackers[i].id, &rx_trackers[i].msg);
+                        can_output_raw_message(rx_trackers[i].msg.id, &rx_trackers[i].msg, 
+                                               rx_trackers[i].total_count, rx_trackers[i].rx_count);
                     }
                     rx_trackers[i].last_protocol_time = current_time;
+                    rx_trackers[i].rx_count = 0;
                 }
-            } /* else {
+            } else {
                 // 매핑되지 않은 ID: 기본 주기(1000ms)로 출력
-                if (current_time - rx_trackers[i].last_protocol_time >= 1000) {
-                    can_output_raw_message(rx_trackers[i].id, &rx_trackers[i].msg);
-                    rx_trackers[i].last_protocol_time = current_time;
+                uint32_t unmapped_period_ms = output_period_ms;
+                if (unmapped_period_ms == 0) {
+                    unmapped_period_ms = FILTER_LISTEN_UNMAPPED_TIMEOUT_MS;
                 }
-            } */
+                if (current_time - rx_trackers[i].last_protocol_time >= unmapped_period_ms) {
+                    can_output_raw_message(rx_trackers[i].msg.id, &rx_trackers[i].msg, 
+                                           rx_trackers[i].total_count, rx_trackers[i].rx_count);
+                    rx_trackers[i].last_protocol_time = current_time;
+                    rx_trackers[i].rx_count = 0;
+                }
+            }
         }
     }
 }
 
 // CAN 메시지를 UART로 출력하는 함수
-void can_output_raw_message(uint32_t can_id, const can_msg_t *msg)
+void can_output_raw_message(uint32_t can_id, const can_msg_t *msg, uint32_t total_count, uint16_t interval_count)
 {
 
 #if DEBUG_CAN
     // DEBUG_CAN이 1일 때는 특정 CAN ID만 출력
     if (!is_debug_can_id(can_id)) {
-        all_printf("FILTERED: 0x%lX (not in debug list)\r\n", can_id);
+        //all_printf("FILTERED: 0x%lX (not in debug list)\r\n", can_id);
         return;  // 디버그 목록에 없는 ID는 출력하지 않음
     }
 #endif
 
     // DEBUG_CAN이 1일 때만 출력
     // CAN ID와 Data를 분리해서 표시
-    all_printf("[CAN] ID: 0x%lX | Data: ", can_id);
+    uint32_t timestamp = millis();
+    if (interval_count > 0) {
+        cdc_printf("[CAN][%lu ms][%lu(+%u)] ID: 0x%lX | Data: ",
+                   (unsigned long)timestamp,
+                   (unsigned long)total_count,
+                   (unsigned int)interval_count,
+                   can_id);
+    } else {
+        cdc_printf("[CAN][%lu ms][%lu] ID: 0x%lX | Data: ",
+                   (unsigned long)timestamp,
+                   (unsigned long)total_count,
+                   can_id);
+    }
     
     // Raw DLC 값을 직접 사용 (canGetLen 함수의 버그 우회)
     uint16_t data_length = msg->length;
     if (data_length > 64) data_length = 64;  // 안전장치
     
     for (int i = 0; i < data_length; i++) {
-        all_printf("%02X ", msg->data[i]);
+        cdc_printf("%02X ", msg->data[i]);
     }
-    all_printf("| DLC: %d | Length: %d\r\n", msg->dlc, data_length);
+    cdc_printf("| DLC: %d | Length: %d\r\n", msg->dlc, data_length);
 }
 
 // 프로토콜 메시지를 설명과 함께 UART로 출력하는 함수
