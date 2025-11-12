@@ -58,7 +58,7 @@ static uint32_t rx_display_time = 0;
 static all_can_tracker_t all_can_trackers[MAX_ALL_CAN_IDS];
 static uint8_t all_can_active_count = 0;
 static uint32_t all_can_output_period = 10;  // 기본 출력 주기: 1000ms
-static uint32_t all_can_timeout_period = 3000;  // 타임아웃 주기: 3000ms (3초)
+static uint32_t all_can_timeout_period = 1000;  // 타임아웃 주기: 3000ms (3초)
 
 // 디버깅 모드를 위한 설정
 static uint32_t debug_output_time = 0;
